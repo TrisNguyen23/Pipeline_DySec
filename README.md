@@ -38,25 +38,25 @@ The pipeline follows this workflow:
 │                 │                │
 │                 ▼                │
 │  ┌────────────────────────────┐  │
-│  │ eBPF / bpftrace             │  │
-│  │ Syscall collection          │  │
+│  │ eBPF / bpftrace            │  │
+│  │ Syscall collection         │  │
 │  └──────────────┬─────────────┘  │
 │                 │                │
 │                 ▼                │
-│             .trace              │
+│             .trace               │
 └─────────────────┬────────────────┘
                   │
                   ▼
         ┌─────────────────────┐
         │   DySec Inference   │
         │                     │
-        │ Random Forest Model  │
+        │ Random Forest Model │
         │ + syscall n-grams   │
         └──────────┬──────────┘
                    │
                    ▼
              ┌─────────────┐
-             │   Verdict    │
+             │   Verdict   │
              │             │
              │ Benign /    │
              │ Malicious   │
@@ -118,6 +118,7 @@ Its role is to generate code variants according to the transformation instructio
 pipeline_robustness.py
         │
         │ HTTP request
+        |
         ▼
 Ollama API
         │
