@@ -912,17 +912,3 @@ The framework is intended for:
 # Citation
 
 If this repository or its results are used in academic work, please cite the original **DySec** research and the associated dataset/model used in the experiments.
-
----
-
-# License
-
-Add the appropriate license for this repository.
-
-For example:
-
-```text
-MIT License
-```
-
-if the repository is released under the MIT License.
