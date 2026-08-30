@@ -64,15 +64,12 @@ Source Code:
         return source_code
 
 def trace_execution(code_path, trace_output_path):
-    trace_cmd = f"sudo bpftrace -e 'tracepoint:raw_syscalls:sys_enter {{ printf(\"%s\\n\", probe); }}' > {trace_output_path}"
-    bpf_proc = subprocess.Popen(trace_cmd, shell=True, preexec_fn=os.setsid)
-    time.sleep(2)
-
-    subprocess.run(f"python3 {code_path}", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    time.sleep(1)
-
-    subprocess.run(f"sudo kill -2 {bpf_proc.pid}", shell=True)
-    time.sleep(1)
+    trace_cmd = (
+        f"sudo bpftrace -o {trace_output_path} "
+        f"-e 'tracepoint:raw_syscalls:sys_enter /pid == cpid/ {{ printf(\"%s\\n\", probe); }}' "
+        f"-c 'python3 {code_path}'"
+    )
+    subprocess.run(trace_cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 def evaluate_with_dysec(trace_path):
     result = subprocess.run(
