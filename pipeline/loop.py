@@ -40,10 +40,6 @@ def run_package(package_name, original_code):
         f"for {package_name}"
     )
 
-    # ==========================================================
-    # Strategy loop
-    # ==========================================================
-
     for strategy in STRATEGIES:
 
         strategy_name = strategy["name"]
@@ -56,10 +52,6 @@ def run_package(package_name, original_code):
         # IMPORTANT:
         # Every new strategy starts from the original code.
         current_code = original_code
-
-        # ======================================================
-        # Round loop
-        # ======================================================
 
         for round_number in range(
             1,
@@ -87,11 +79,6 @@ def run_package(package_name, original_code):
             print(
                 f"    Attempt: {total_attempts}"
             )
-
-            # ==================================================
-            # 1. Build prompt
-            # ==================================================
-
             prompt = build_prompt(
                 strategy=strategy,
                 source_code=current_code,
@@ -107,10 +94,6 @@ def run_package(package_name, original_code):
             print(
                 "[1] Prompt generated."
             )
-
-            # ==================================================
-            # 2. Generate transformed code
-            # ==================================================
 
             generation = generate_variant(
                 prompt
@@ -153,10 +136,6 @@ def run_package(package_name, original_code):
                 "[2] Generated variant."
             )
 
-            # ==================================================
-            # 3. Save generated code
-            # ==================================================
-
             generated_file = save_generated_code(
                 generated_dir=round_dir,
                 code=generated_code,
@@ -166,11 +145,6 @@ def run_package(package_name, original_code):
             print(
                 f"[+] Saved: {generated_file}"
             )
-
-            # ==================================================
-            # 4. Validate behavior
-            # ==================================================
-
             behavior = validate_behavior(
                 original_code=original_code,
                 generated_code=generated_code,
@@ -185,10 +159,6 @@ def run_package(package_name, original_code):
                 "[3] Behavior validation:"
                 f" {behavior_preserved}"
             )
-
-            # ==================================================
-            # 5. Execute + collect trace
-            # ==================================================
 
             trace_file = (
                 round_dir / "trace.trace"
@@ -382,10 +352,6 @@ def run_package(package_name, original_code):
 
                 current_code = generated_code
 
-        # ======================================================
-        # Strategy exhausted
-        # ======================================================
-
         print()
         print(
             f"[!] Strategy {strategy_name} "
@@ -397,10 +363,6 @@ def run_package(package_name, original_code):
             "[!] Resetting to ORIGINAL code "
             "before next strategy."
         )
-
-    # ==========================================================
-    # All strategies exhausted
-    # ==========================================================
 
     print()
     print("=" * 65)
