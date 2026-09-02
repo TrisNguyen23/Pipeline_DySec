@@ -12,7 +12,7 @@ from pipeline.harness import save_generated_code
 from pipeline.executor import execute_and_trace
 from pipeline.evaluator import evaluate_trace
 from pipeline.validator import validate_behavior
-from pipeline.logger import save_json, save_text
+from pipeline.logger import save_json
 
 
 def run_package(package_name, original_code):
