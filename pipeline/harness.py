@@ -1,4 +1,5 @@
 import requests
+from pathlib import Path
 
 from config.settings import (
     OLLAMA_API,
@@ -60,3 +61,10 @@ def generate_variant(prompt):
             "code": None,
             "error": str(exc),
         }
+
+def save_generated_code(generated_dir: Path, code: str, filename: str = "generated.py") -> Path:
+    generated_dir.mkdir(parents=True, exist_ok=True)
+    target_file = generated_dir / filename
+    with open(target_file, "w", encoding="utf-8") as f:
+        f.write(code)
+    return target_file
