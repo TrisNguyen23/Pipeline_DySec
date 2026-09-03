@@ -1,35 +1,53 @@
+from __future__ import annotations
+
 import json
+from pathlib import Path
 
 
-def save_json(path, data):
+def save_json(
+    path: Path,
+    data: dict,
+) -> None:
+    """
+    Save structured experiment data as JSON.
+    """
+
+    path = Path(path)
 
     path.parent.mkdir(
         parents=True,
-        exist_ok=True
+        exist_ok=True,
     )
 
-    with open(
-        path,
+    with path.open(
         "w",
-        encoding="utf-8"
-    ) as f:
+        encoding="utf-8",
+    ) as file:
 
         json.dump(
             data,
-            f,
-            indent=2
+            file,
+            indent=2,
+            ensure_ascii=False,
         )
-def save_text(path, text):
+
+
+def save_text(
+    path: Path,
+    text: str,
+) -> None:
+    """
+    Save text data as UTF-8.
+    """
+
+    path = Path(path)
 
     path.parent.mkdir(
         parents=True,
-        exist_ok=True
+        exist_ok=True,
     )
 
-    with open(
-        path,
-        "w",
-        encoding="utf-8"
-    ) as f:
-
-        f.write(text)
+    path.write_text(
+        text,
+        encoding="utf-8",
+    )

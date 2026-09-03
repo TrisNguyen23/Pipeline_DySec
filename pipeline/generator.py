@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import requests
 
 from config.settings import (
@@ -8,14 +10,43 @@ from config.settings import (
 )
 
 
-def generate_variant(prompt):
+def _clean_generated_code(response_text: str) -> str:
+    """
+    Remove markdown code fences accidentally returned by the LLM.
+    """
+
+    code = response_text.strip()
+
+    if code.startswith("```python"):
+        code = code[len("```python"):].strip()
+
+    elif code.startswith("```"):
+        code = code[len("```"):].strip()
+
+    if code.endswith("```"):
+        code = code[:-3].strip()
+
+    return code
+
+
+def generate_variant(prompt: str) -> dict:
+    """
+    Generate one source-code variant using the configured Ollama model.
+    """
+
+    if not prompt or not prompt.strip():
+        return {
+            "success": False,
+            "code": None,
+            "error": "Prompt is empty.",
+        }
 
     payload = {
         "model": MODEL_NAME,
         "prompt": prompt,
         "stream": False,
         "options": {
-            "temperature": TEMPERATURE
+            "temperature": TEMPERATURE,
         },
     }
 
@@ -30,16 +61,23 @@ def generate_variant(prompt):
 
         result = response.json()
 
-        generated_code = result.get(
-            "response",
-            ""
-        ).strip()
+        if not isinstance(result, dict):
+            raise RuntimeError(
+                "Ollama returned a non-object JSON response."
+            )
 
-        generated_code = (
-            generated_code
-            .replace("```python", "")
-            .replace("```", "")
-            .strip()
+        response_text = result.get(
+            "response"
+        )
+
+        if not isinstance(response_text, str):
+            raise RuntimeError(
+                "Ollama response does not contain "
+                "a valid 'response' string."
+            )
+
+        generated_code = _clean_generated_code(
+            response_text
         )
 
         if not generated_code:
@@ -51,6 +89,26 @@ def generate_variant(prompt):
             "success": True,
             "code": generated_code,
             "error": None,
+        }
+
+    except requests.RequestException as exc:
+
+        return {
+            "success": False,
+            "code": None,
+            "error": (
+                f"Ollama request failed: {exc}"
+            ),
+        }
+
+    except ValueError as exc:
+
+        return {
+            "success": False,
+            "code": None,
+            "error": (
+                f"Invalid Ollama JSON response: {exc}"
+            ),
         }
 
     except Exception as exc:
