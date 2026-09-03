@@ -1,10 +1,11 @@
+from __future__ import annotations
+
+
 def build_prompt(
     strategy: dict,
+    relative_path: str,
     source_code: str,
 ) -> str:
-    """
-    Build the transformation prompt for one generation round.
-    """
 
     if not source_code.strip():
         raise ValueError(
@@ -12,34 +13,38 @@ def build_prompt(
         )
 
     return f"""
-You are an automated software transformation tool
-for academic robustness evaluation.
+You are an automated software transformation
+system for academic robustness evaluation.
 
-Your task is to transform the supplied Python source code
-while preserving its observable semantics.
+Transform the supplied Python source file according
+to the specified transformation strategy.
 
-Transformation strategy:
+Strategy:
 
 {strategy["description"]}
 
+Target file:
+
+{relative_path}
+
 Requirements:
 
-1. Preserve the original observable behavior.
-2. Preserve required side effects.
-3. Preserve input and output behavior.
-4. Preserve return values.
-5. Preserve relevant exception behavior.
-6. Preserve required package interfaces.
-7. Preserve required dependencies.
-8. Do not remove existing functionality.
+1. Preserve the original semantics.
+2. Preserve inputs and outputs.
+3. Preserve return values.
+4. Preserve relevant exceptions.
+5. Preserve side effects.
+6. Preserve package interfaces.
+7. Preserve imports and required dependencies.
+8. Do not remove functionality.
 9. Do not add unrelated functionality.
-10. Do not change package metadata unless explicitly required.
-11. Do not introduce external dependencies.
-12. The transformed program must remain valid Python.
-13. Return ONLY the complete transformed Python source code.
-14. Do not return Markdown.
-15. Do not return ```python fences.
-16. Do not explain the transformation.
+10. Do not introduce external dependencies.
+11. Keep the code valid Python.
+12. Modify only the supplied source file.
+13. Return ONLY the complete transformed Python source.
+14. Do not use Markdown.
+15. Do not use code fences.
+16. Do not provide explanations.
 
 Source code:
 

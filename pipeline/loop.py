@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
-from config.strategies import STRATEGIES
 from config.settings import (
     OUTPUT_DIR,
     ROUNDS_PER_STRATEGY,
@@ -10,124 +10,115 @@ from config.settings import (
     SANDBOX_TIMEOUT,
 )
 
-from pipeline.prompt_builder import build_prompt
-from pipeline.generator import generate_variant
-from pipeline.harness import save_generated_code
-from pipeline.executor import execute_python
-from pipeline.evaluator import evaluate_trace
-from pipeline.validator import validate_behavior
-from pipeline.logger import save_json, save_text
+from config.strategies import STRATEGIES
+
+from pipeline.package_loader import (
+    extract_package,
+    collect_python_files,
+)
+
+from pipeline.prompt_builder import (
+    build_prompt,
+)
+
+from pipeline.generator import (
+    generate_variant,
+)
+
+from pipeline.harness import (
+    copy_package,
+)
+
+from pipeline.validator import (
+    validate_behavior,
+)
+
+from pipeline.executor import (
+    execute_package,
+)
+
+from pipeline.evaluator import (
+    evaluate_trace,
+)
+
+from pipeline.logger import (
+    save_json,
+    save_text,
+)
 
 
-def _get_external_trace_path(
+def _find_target_source(
+    package_root: Path,
+) -> Path:
+
+    python_files = collect_python_files(
+        package_root
+    )
+
+    if not python_files:
+        raise RuntimeError(
+            f"No Python source files found in "
+            f"{package_root}"
+        )
+
+    return python_files[0]
+
+
+def _trace_path(
     package_name: str,
     strategy_name: str,
     round_number: int,
 ) -> Path:
-    """
-    Resolve the trace supplied by the external tracing stage.
-
-    Expected location:
-
-        traces/
-            <package_name>/
-                <strategy_name>/
-                    round_XX/
-                        trace.trace
-    """
 
     return (
         TRACE_DIR
         / package_name
         / strategy_name
         / f"round_{round_number:02d}"
-        / "trace.trace"
     )
-
-
-def _save_failure(
-    round_dir: Path,
-    package_name: str,
-    strategy_name: str,
-    round_number: int,
-    attempt: int,
-    status: str,
-    **extra,
-) -> dict:
-
-    result = {
-        "package": package_name,
-        "strategy": strategy_name,
-        "round": round_number,
-        "attempt": attempt,
-        "status": status,
-        **extra,
-    }
-
-    save_json(
-        round_dir / "result.json",
-        result,
-    )
-
-    return result
 
 
 def run_package(
     package_name: str,
-    original_code: str,
-    original_path: Path,
-):
-    """
-    Run the complete robustness evaluation for one package.
+    archive_path: Path,
+) -> dict:
 
-    Tracing is external to this pipeline.
-
-    Each strategy starts from the original source.
-    Within a strategy, the next round uses the previous
-    generated variant.
-
-    The experiment stops when:
-
-        behavior_preserved == True
-        AND
-        DySec verdict == BENIGN
-    """
-
-    original_path = Path(
-        original_path
+    archive_path = Path(
+        archive_path
     ).resolve()
 
-    if not original_path.exists():
-        raise FileNotFoundError(
-            f"Original package entry point does not exist: "
-            f"{original_path}"
+    package_output = (
+        OUTPUT_DIR
+        / package_name
+    )
+
+    if package_output.exists():
+        shutil.rmtree(
+            package_output
         )
 
-    package_output_dir = (
-        OUTPUT_DIR / package_name
+    package_output.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    original_dir = (
+        package_output
+        / "original"
+    )
+
+    original_root = extract_package(
+        archive_path,
+        original_dir,
     )
 
     total_attempts = 0
-
-    print()
-    print("=" * 65)
-    print(
-        f"STARTING ROBUSTNESS EVALUATION: "
-        f"{package_name}"
-    )
-    print("=" * 65)
 
     for strategy in STRATEGIES:
 
         strategy_name = strategy["name"]
 
-        print()
-        print("-" * 65)
-        print(f"STRATEGY: {strategy_name}")
-        print("-" * 65)
-
-        current_code = original_code
-        current_code_path = original_path
+        current_package = original_root
 
         for round_number in range(
             1,
@@ -137,7 +128,7 @@ def run_package(
             total_attempts += 1
 
             round_dir = (
-                package_output_dir
+                package_output
                 / strategy_name
                 / f"round_{round_number:02d}"
             )
@@ -147,29 +138,34 @@ def run_package(
                 exist_ok=True,
             )
 
-            print()
-            print(
-                f">>> Round "
-                f"{round_number}/"
-                f"{ROUNDS_PER_STRATEGY}"
+            target_file = (
+                _find_target_source(
+                    current_package
+                )
             )
 
-            print(
-                f"    Attempt: {total_attempts}"
+            relative_path = str(
+                target_file.relative_to(
+                    current_package
+                )
+            )
+
+            source_code = (
+                target_file.read_text(
+                    encoding="utf-8",
+                    errors="replace",
+                )
             )
 
             prompt = build_prompt(
                 strategy=strategy,
-                source_code=current_code,
+                relative_path=relative_path,
+                source_code=source_code,
             )
 
             save_text(
                 round_dir / "prompt.txt",
                 prompt,
-            )
-
-            print(
-                "[1] Prompt generated."
             )
 
             generation = generate_variant(
@@ -178,68 +174,12 @@ def run_package(
 
             if not generation["success"]:
 
-                print(
-                    "[-] LLM generation failed."
-                )
-
-                return _save_failure(
-                    round_dir,
-                    package_name,
-                    strategy_name,
-                    round_number,
-                    total_attempts,
-                    "GENERATION_ERROR",
-                    behavior_preserved=False,
-                    dysec_verdict=None,
-                    error=generation["error"],
-                )
-
-            generated_code = generation["code"]
-
-            print(
-                "[2] Generated variant."
-            )
-
-            generated_file = save_generated_code(
-                generated_dir=round_dir,
-                code=generated_code,
-                filename="generated.py",
-            )
-
-            print(
-                f"[+] Saved: {generated_file}"
-            )
-
-            behavior = validate_behavior(
-                original_code=original_code,
-                generated_code=generated_code,
-                original_path=current_code_path,
-                generated_path=generated_file,
-            )
-
-            behavior_preserved = bool(
-                behavior.get(
-                    "preserved",
-                    False,
-                )
-            )
-
-            print(
-                "[3] Behavior validation: "
-                f"{behavior_preserved}"
-            )
-
-            if not behavior_preserved:
-
                 result = {
                     "package": package_name,
                     "strategy": strategy_name,
                     "round": round_number,
-                    "attempt": total_attempts,
-                    "status": "BEHAVIOR_NOT_PRESERVED",
-                    "behavior_preserved": False,
-                    "behavior_validation": behavior,
-                    "dysec_verdict": None,
+                    "status": "GENERATION_ERROR",
+                    "error": generation["error"],
                 }
 
                 save_json(
@@ -247,35 +187,71 @@ def run_package(
                     result,
                 )
 
-                print(
-                    "[!] Behavior was not preserved."
+                return result
+
+            generated_package = (
+                round_dir
+                / "package"
+            )
+
+            copy_package(
+                current_package,
+                generated_package,
+            )
+
+            generated_target = (
+                generated_package
+                / relative_path
+            )
+
+            generated_target.write_text(
+                generation["code"],
+                encoding="utf-8",
+            )
+
+            behavior = validate_behavior(
+                original_package=original_root,
+                generated_package=generated_package,
+            )
+
+            if not behavior["preserved"]:
+
+                result = {
+                    "package": package_name,
+                    "strategy": strategy_name,
+                    "round": round_number,
+                    "status": (
+                        "BEHAVIOR_NOT_PRESERVED"
+                    ),
+                    "behavior_preserved": False,
+                    "behavior_validation": behavior,
+                }
+
+                save_json(
+                    round_dir / "result.json",
+                    result,
                 )
 
-                # Do not use a behavior-breaking variant
-                # as the basis for the next round.
                 continue
 
-            execution = execute_python(
-                code_path=generated_file,
+            execution = execute_package(
+                package_root=generated_package,
+                environment_directory=(
+                    round_dir
+                    / "execution_env"
+                ),
                 timeout=SANDBOX_TIMEOUT,
-                working_directory=generated_file.parent,
             )
 
             if not execution["success"]:
 
-                print(
-                    "[-] Generated variant execution failed."
-                )
-
                 result = {
                     "package": package_name,
                     "strategy": strategy_name,
                     "round": round_number,
-                    "attempt": total_attempts,
                     "status": "EXECUTION_ERROR",
                     "behavior_preserved": True,
                     "behavior_validation": behavior,
-                    "dysec_verdict": None,
                     "execution": execution,
                 }
 
@@ -286,53 +262,16 @@ def run_package(
 
                 continue
 
-            print(
-                "[4] Generated variant executed."
+            trace_directory = _trace_path(
+                package_name,
+                strategy_name,
+                round_number,
             )
-
-            trace_path = _get_external_trace_path(
-                package_name=package_name,
-                strategy_name=strategy_name,
-                round_number=round_number,
-            )
-
-            print(
-                f"[5] Looking for external trace:"
-            )
-            print(
-                f"    {trace_path}"
-            )
-
-            if not trace_path.exists():
-
-                result = {
-                    "package": package_name,
-                    "strategy": strategy_name,
-                    "round": round_number,
-                    "attempt": total_attempts,
-                    "status": "TRACE_NOT_AVAILABLE",
-                    "behavior_preserved": True,
-                    "behavior_validation": behavior,
-                    "dysec_verdict": None,
-                    "execution": execution,
-                    "trace_path": str(trace_path),
-                }
-
-                save_json(
-                    round_dir / "result.json",
-                    result,
-                )
-
-                print(
-                    "[-] External trace not found."
-                )
-
-                continue
 
             try:
 
                 dysec_result = evaluate_trace(
-                    trace_path
+                    trace_directory
                 )
 
             except Exception as exc:
@@ -341,13 +280,10 @@ def run_package(
                     "package": package_name,
                     "strategy": strategy_name,
                     "round": round_number,
-                    "attempt": total_attempts,
                     "status": "DYSEC_ERROR",
                     "behavior_preserved": True,
                     "behavior_validation": behavior,
-                    "dysec_verdict": None,
                     "execution": execution,
-                    "trace_path": str(trace_path),
                     "error": str(exc),
                 }
 
@@ -356,61 +292,55 @@ def run_package(
                     result,
                 )
 
-                print(
-                    f"[-] DySec evaluation failed: {exc}"
-                )
-
                 continue
 
-            dysec_verdict = str(
+            verdict = str(
                 dysec_result.get(
                     "verdict",
                     "UNKNOWN",
                 )
             ).upper()
 
-            print(
-                f"[6] DySec verdict: "
-                f"{dysec_verdict}"
-            )
+            if verdict == "BENIGN":
 
-            if dysec_verdict == "BENIGN":
+                result = {
+                    "package": package_name,
+                    "strategy": strategy_name,
+                    "round": round_number,
+                    "status": (
+                        "SUCCESSFUL_EVASION"
+                    ),
+                    "behavior_preserved": True,
+                    "dysec_verdict": verdict,
+                    "dysec_result": dysec_result,
+                }
 
-                status = (
-                    "SUCCESSFUL_EVASION"
+                save_json(
+                    round_dir / "result.json",
+                    result,
                 )
 
-            elif dysec_verdict == "MALICIOUS":
+                summary = {
+                    **result,
+                    "total_attempts": total_attempts,
+                }
 
-                status = "DETECTED"
+                save_json(
+                    package_output
+                    / "summary.json",
+                    summary,
+                )
 
-            else:
-
-                status = "UNKNOWN"
+                return summary
 
             result = {
                 "package": package_name,
                 "strategy": strategy_name,
                 "round": round_number,
-                "attempt": total_attempts,
-                "status": status,
-
+                "status": "DETECTED",
                 "behavior_preserved": True,
-                "behavior_validation": behavior,
-
-                "dysec_verdict": dysec_verdict,
-                "dysec_prediction": dysec_result.get(
-                    "prediction"
-                ),
-                "dysec_confidence": dysec_result.get(
-                    "confidence"
-                ),
-
-                "trace_path": str(
-                    trace_path
-                ),
-
-                "execution": execution,
+                "dysec_verdict": verdict,
+                "dysec_result": dysec_result,
             }
 
             save_json(
@@ -418,114 +348,21 @@ def run_package(
                 result,
             )
 
-            if status == "SUCCESSFUL_EVASION":
-
-                print()
-                print("=" * 65)
-                print(
-                    "       SUCCESSFUL EVASION FOUND"
-                )
-                print("=" * 65)
-
-                print(
-                    f"Package  : {package_name}"
-                )
-                print(
-                    f"Strategy : {strategy_name}"
-                )
-                print(
-                    f"Round    : {round_number}"
-                )
-                print(
-                    f"Attempts : {total_attempts}"
-                )
-                print(
-                    f"DySec    : {dysec_verdict}"
-                )
-                print(
-                    "Behavior : PRESERVED"
-                )
-
-                print("=" * 65)
-
-                summary = {
-                    "package": package_name,
-                    "strategy": strategy_name,
-                    "round": round_number,
-                    "attempt": total_attempts,
-                    "dysec_verdict": dysec_verdict,
-                    "behavior_preserved": True,
-                    "status": status,
-                    "total_attempts": total_attempts,
-                }
-
-                save_json(
-                    package_output_dir
-                    / "summary.json",
-                    summary,
-                )
-
-                return summary
-
-            if (
-                round_number
-                < ROUNDS_PER_STRATEGY
-            ):
-
-                current_code = generated_code
-                current_code_path = generated_file
-
-                print(
-                    "[+] Continuing with generated "
-                    "variant for next round."
-                )
-
-        print()
-        print(
-            f"[!] Strategy {strategy_name} "
-            f"exhausted after "
-            f"{ROUNDS_PER_STRATEGY} rounds."
-        )
-
-        print(
-            "[!] Resetting to ORIGINAL code "
-            "before next strategy."
-        )
-
-    print()
-    print("=" * 65)
-    print(
-        "       ALL STRATEGIES EXHAUSTED"
-    )
-    print("=" * 65)
-
-    print(
-        f"Package  : {package_name}"
-    )
-
-    print(
-        f"Attempts : {total_attempts}"
-    )
-
-    print(
-        "DySec successfully evaded: NO"
-    )
-
-    print("=" * 65)
+            current_package = generated_package
 
     summary = {
         "package": package_name,
         "strategy": None,
         "round": None,
-        "attempt": total_attempts,
-        "dysec_verdict": None,
-        "behavior_preserved": None,
-        "status": "ALL_STRATEGIES_EXHAUSTED",
+        "status": (
+            "ALL_STRATEGIES_EXHAUSTED"
+        ),
         "total_attempts": total_attempts,
+        "dysec_verdict": None,
     }
 
     save_json(
-        package_output_dir / "summary.json",
+        package_output / "summary.json",
         summary,
     )
 

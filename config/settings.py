@@ -4,7 +4,11 @@ import os
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-PACKAGES_DIR = PROJECT_ROOT / "packages"
+PACKAGES_DIR = (
+    PROJECT_ROOT
+    / "packages"
+    / "Malicous Packages"
+)
 
 OUTPUT_DIR = (
     PROJECT_ROOT
@@ -17,8 +21,6 @@ MODEL_PATH = (
     / "models"
     / "RF_best_model_ngrams.pkl"
 )
-
-PROBES_DIR = PROJECT_ROOT / "probes"
 
 OLLAMA_API = os.getenv(
     "OLLAMA_API",
@@ -47,28 +49,28 @@ PYTHON_EXECUTABLE = os.getenv(
     "python3",
 )
 
-TRACE_TIMEOUT = int(
-    os.getenv("TRACE_TIMEOUT", "120")
-)
-
-POST_INSTALL_WAIT = int(
-    os.getenv("POST_INSTALL_WAIT", "120")
-)
-
 SANDBOX_TIMEOUT = int(
     os.getenv("SANDBOX_TIMEOUT", "180")
+)
+
+VALIDATION_TIMEOUT = int(
+    os.getenv("VALIDATION_TIMEOUT", "180")
+)
+
+TRACE_TIMEOUT = int(
+    os.getenv("TRACE_TIMEOUT", "180")
 )
 
 TRACE_STARTUP_DELAY = float(
     os.getenv("TRACE_STARTUP_DELAY", "2")
 )
 
-TRACE_UID = os.getenv(
-    "TRACE_UID",
-    "",
+TRACE_DIR = Path(
+    os.getenv(
+        "TRACE_DIR",
+        str(PROJECT_ROOT / "traces")
+    )
 )
-
-EXPERIMENT_NAME = "dysec_robustness_evaluation"
 
 GENERATED_DIR = OUTPUT_DIR / "generated"
 
@@ -80,23 +82,14 @@ LOG_DIR = OUTPUT_DIR / "logs"
 
 RESULTS_DIR = OUTPUT_DIR / "results"
 
-TRACE_DIR = Path(
+KEEP_GENERATED_VARIANTS = (
     os.getenv(
-        "TRACE_DIR",
-        str(PROJECT_ROOT / "traces"),
-    )
+        "KEEP_GENERATED_VARIANTS",
+        "true",
+    ).lower()
+    == "true"
 )
 
-CLEAN_OUTPUT = os.getenv(
-    "CLEAN_OUTPUT",
-    "false",
-).lower() == "true"
-
-KEEP_GENERATED_VARIANTS = os.getenv(
-    "KEEP_GENERATED_VARIANTS",
-    "true",
-).lower() == "true"
-
-VALIDATION_TIMEOUT = int(
-    os.getenv("VALIDATION_TIMEOUT", "120")
+EXPERIMENT_NAME = (
+    "dysec_robustness_evaluation"
 )

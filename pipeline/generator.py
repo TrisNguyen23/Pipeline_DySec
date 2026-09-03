@@ -10,18 +10,23 @@ from config.settings import (
 )
 
 
-def _clean_generated_code(response_text: str) -> str:
-    """
-    Remove markdown code fences accidentally returned by the LLM.
-    """
+def _clean_code(
+    response_text: str,
+) -> str:
 
     code = response_text.strip()
 
-    if code.startswith("```python"):
-        code = code[len("```python"):].strip()
+    if code.startswith(
+        "```python"
+    ):
+        code = code[
+            len("```python"):
+        ].strip()
 
     elif code.startswith("```"):
-        code = code[len("```"):].strip()
+        code = code[
+            len("```"):
+        ].strip()
 
     if code.endswith("```"):
         code = code[:-3].strip()
@@ -29,12 +34,11 @@ def _clean_generated_code(response_text: str) -> str:
     return code
 
 
-def generate_variant(prompt: str) -> dict:
-    """
-    Generate one source-code variant using the configured Ollama model.
-    """
+def generate_variant(
+    prompt: str,
+) -> dict:
 
-    if not prompt or not prompt.strip():
+    if not prompt.strip():
         return {
             "success": False,
             "code": None,
@@ -44,13 +48,12 @@ def generate_variant(prompt: str) -> dict:
     payload = {
         "model": MODEL_NAME,
         "prompt": prompt,
+        "temperature": TEMPERATURE,
         "stream": False,
-        "options": {
-            "temperature": TEMPERATURE,
-        },
     }
 
     try:
+
         response = requests.post(
             OLLAMA_API,
             json=payload,
@@ -61,33 +64,30 @@ def generate_variant(prompt: str) -> dict:
 
         result = response.json()
 
-        if not isinstance(result, dict):
-            raise RuntimeError(
-                "Ollama returned a non-object JSON response."
-            )
-
         response_text = result.get(
             "response"
         )
 
-        if not isinstance(response_text, str):
+        if not isinstance(
+            response_text,
+            str,
+        ):
             raise RuntimeError(
-                "Ollama response does not contain "
-                "a valid 'response' string."
+                "Invalid Ollama response."
             )
 
-        generated_code = _clean_generated_code(
+        code = _clean_code(
             response_text
         )
 
-        if not generated_code:
+        if not code:
             raise RuntimeError(
                 "LLM returned empty code."
             )
 
         return {
             "success": True,
-            "code": generated_code,
+            "code": code,
             "error": None,
         }
 
@@ -98,16 +98,6 @@ def generate_variant(prompt: str) -> dict:
             "code": None,
             "error": (
                 f"Ollama request failed: {exc}"
-            ),
-        }
-
-    except ValueError as exc:
-
-        return {
-            "success": False,
-            "code": None,
-            "error": (
-                f"Invalid Ollama JSON response: {exc}"
             ),
         }
 

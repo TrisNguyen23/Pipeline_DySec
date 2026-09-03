@@ -1,38 +1,31 @@
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 
-def save_generated_code(
-    generated_dir: Path,
-    code: str,
-    filename: str = "generated.py",
+def copy_package(
+    source: Path,
+    destination: Path,
 ) -> Path:
-    """
-    Save generated source code to disk.
-    """
 
-    if not code or not code.strip():
-        raise ValueError(
-            "Cannot save empty generated code."
+    source = Path(source).resolve()
+    destination = Path(
+        destination
+    ).resolve()
+
+    if not source.exists():
+        raise FileNotFoundError(
+            f"Source package does not exist: "
+            f"{source}"
         )
 
-    generated_dir = Path(
-        generated_dir
+    if destination.exists():
+        shutil.rmtree(destination)
+
+    shutil.copytree(
+        source,
+        destination,
     )
 
-    generated_dir.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
-    target_file = (
-        generated_dir / filename
-    )
-
-    target_file.write_text(
-        code,
-        encoding="utf-8",
-    )
-
-    return target_file
+    return destination

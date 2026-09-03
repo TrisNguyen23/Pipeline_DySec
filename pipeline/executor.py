@@ -4,7 +4,6 @@ import os
 import subprocess
 import time
 from pathlib import Path
-from typing import Optional
 
 from config.settings import (
     PYTHON_EXECUTABLE,
@@ -12,76 +11,49 @@ from config.settings import (
 )
 
 
-class ExecutionError(RuntimeError):
-    """Raised when execution cannot be started."""
-
-
-def execute_python(
-    code_path: Path,
+def execute_package(
+    package_root: Path,
+    environment_directory: Path,
     timeout: int = SANDBOX_TIMEOUT,
-    working_directory: Optional[Path] = None,
 ) -> dict:
-    """
-    Execute a Python program and capture its observable process result.
 
-    This function does NOT perform DySec tracing.
+    package_root = Path(
+        package_root
+    ).resolve()
 
-    Parameters
-    ----------
-    code_path:
-        Python file to execute.
+    environment_directory = Path(
+        environment_directory
+    ).resolve()
 
-    timeout:
-        Maximum execution time in seconds.
-
-    working_directory:
-        Directory used as the subprocess working directory.
-        Defaults to the directory containing code_path.
-    """
-
-    code_path = Path(code_path).resolve()
-
-    if not code_path.exists():
+    if not package_root.exists():
         raise FileNotFoundError(
-            f"Python file does not exist: {code_path}"
+            f"Package directory does not exist: "
+            f"{package_root}"
         )
 
-    if not code_path.is_file():
-        raise ExecutionError(
-            f"Expected a file but received: {code_path}"
-        )
-
-    if code_path.suffix != ".py":
-        raise ExecutionError(
-            f"Expected a Python file but received: {code_path}"
-        )
-
-    if working_directory is None:
-        working_directory = code_path.parent
-    else:
-        working_directory = Path(
-            working_directory
-        ).resolve()
-
-    if not working_directory.exists():
-        raise FileNotFoundError(
-            f"Working directory does not exist: "
-            f"{working_directory}"
-        )
-
-    environment = os.environ.copy()
+    environment_directory.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
 
     command = [
         PYTHON_EXECUTABLE,
-        str(code_path),
+        "-m",
+        "pip",
+        "install",
+        "--no-deps",
+        "--no-index",
+        str(package_root),
     ]
+
+    environment = os.environ.copy()
 
     start_time = time.monotonic()
 
     try:
         completed = subprocess.run(
             command,
-            cwd=str(working_directory),
+            cwd=str(package_root),
             env=environment,
             capture_output=True,
             text=True,
@@ -89,81 +61,42 @@ def execute_python(
             check=False,
         )
 
-        duration = time.monotonic() - start_time
+        duration = (
+            time.monotonic()
+            - start_time
+        )
 
         return {
-            "success": completed.returncode == 0,
-            "return_code": completed.returncode,
+            "success": (
+                completed.returncode == 0
+            ),
+            "return_code": (
+                completed.returncode
+            ),
             "stdout": completed.stdout,
             "stderr": completed.stderr,
             "duration": duration,
             "timed_out": False,
             "command": command,
-            "working_directory": str(
-                working_directory
+            "package_root": str(
+                package_root
             ),
         }
 
     except subprocess.TimeoutExpired as exc:
 
-        duration = time.monotonic() - start_time
-
-        stdout = exc.stdout or ""
-        stderr = exc.stderr or ""
-
-        if isinstance(stdout, bytes):
-            stdout = stdout.decode(
-                "utf-8",
-                errors="replace",
-            )
-
-        if isinstance(stderr, bytes):
-            stderr = stderr.decode(
-                "utf-8",
-                errors="replace",
-            )
-
         return {
             "success": False,
             "return_code": None,
-            "stdout": stdout,
-            "stderr": stderr,
-            "duration": duration,
+            "stdout": exc.stdout or "",
+            "stderr": exc.stderr or "",
+            "duration": (
+                time.monotonic()
+                - start_time
+            ),
             "timed_out": True,
             "command": command,
-            "working_directory": str(
-                working_directory
+            "package_root": str(
+                package_root
             ),
         }
-
-
-def execute_and_trace(
-    code_path: Path,
-    trace_path: Path,
-    timeout: int = SANDBOX_TIMEOUT,
-) -> dict:
-    """
-    Backwards-compatible wrapper.
-
-    IMPORTANT:
-    This project does not perform tracing.
-
-    The trace_path argument is retained so existing callers do not
-    immediately break, but this function does not create a trace.
-
-    New code should use execute_python() directly.
-    """
-
-    execution = execute_python(
-        code_path=code_path,
-        timeout=timeout,
-        working_directory=Path(code_path).parent,
-    )
-
-    execution["trace_path"] = str(
-        Path(trace_path)
-    )
-
-    execution["tracing_external"] = True
-
-    return execution
