@@ -16,11 +16,7 @@ def execute_package(
     environment_directory: Path,
     timeout: int = SANDBOX_TIMEOUT,
 ) -> dict:
-
-    package_root = Path(
-        package_root
-    ).resolve()
-
+    package_root = Path(package_root).resolve()
     environment_directory = Path(
         environment_directory
     ).resolve()
@@ -31,13 +27,62 @@ def execute_package(
             f"{package_root}"
         )
 
-    environment_directory.mkdir(
+    environment_directory.parent.mkdir(
         parents=True,
         exist_ok=True,
     )
 
-    command = [
-        PYTHON_EXECUTABLE,
+    venv_python = environment_directory / "bin" / "python"
+
+    # Create an isolated virtual environment if it does not exist.
+    if not venv_python.exists():
+        create_command = [
+            PYTHON_EXECUTABLE,
+            "-m",
+            "venv",
+            str(environment_directory),
+        ]
+
+        try:
+            created = subprocess.run(
+                create_command,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            return {
+                "success": False,
+                "return_code": None,
+                "stdout": exc.stdout or "",
+                "stderr": exc.stderr or "",
+                "duration": 0.0,
+                "timed_out": True,
+                "command": create_command,
+                "package_root": str(package_root),
+                "environment_directory": str(
+                    environment_directory
+                ),
+            }
+
+        if created.returncode != 0:
+            return {
+                "success": False,
+                "return_code": created.returncode,
+                "stdout": created.stdout,
+                "stderr": created.stderr,
+                "duration": 0.0,
+                "timed_out": False,
+                "command": create_command,
+                "package_root": str(package_root),
+                "environment_directory": str(
+                    environment_directory
+                ),
+            }
+
+    pip_command = [
+        str(venv_python),
         "-m",
         "pip",
         "install",
@@ -52,7 +97,7 @@ def execute_package(
 
     try:
         completed = subprocess.run(
-            command,
+            pip_command,
             cwd=str(package_root),
             env=environment,
             capture_output=True,
@@ -70,21 +115,19 @@ def execute_package(
             "success": (
                 completed.returncode == 0
             ),
-            "return_code": (
-                completed.returncode
-            ),
+            "return_code": completed.returncode,
             "stdout": completed.stdout,
             "stderr": completed.stderr,
             "duration": duration,
             "timed_out": False,
-            "command": command,
-            "package_root": str(
-                package_root
+            "command": pip_command,
+            "package_root": str(package_root),
+            "environment_directory": str(
+                environment_directory
             ),
         }
 
     except subprocess.TimeoutExpired as exc:
-
         return {
             "success": False,
             "return_code": None,
@@ -95,8 +138,9 @@ def execute_package(
                 - start_time
             ),
             "timed_out": True,
-            "command": command,
-            "package_root": str(
-                package_root
+            "command": pip_command,
+            "package_root": str(package_root),
+            "environment_directory": str(
+                environment_directory
             ),
         }
