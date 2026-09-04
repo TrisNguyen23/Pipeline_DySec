@@ -16,17 +16,11 @@ def _clean_code(
 
     code = response_text.strip()
 
-    if code.startswith(
-        "```python"
-    ):
-        code = code[
-            len("```python"):
-        ].strip()
+    if code.startswith("```python"):
+        code = code[len("```python"):].strip()
 
     elif code.startswith("```"):
-        code = code[
-            len("```"):
-        ].strip()
+        code = code[len("```"):].strip()
 
     if code.endswith("```"):
         code = code[:-3].strip()
@@ -42,6 +36,8 @@ def generate_variant(
         return {
             "success": False,
             "code": None,
+            "tokens": {},
+            "response_metadata": {},
             "error": "Prompt is empty.",
         }
 
@@ -64,16 +60,12 @@ def generate_variant(
 
         result = response.json()
 
-        response_text = result.get(
-            "response"
-        )
+        response_text = result.get("response")
 
-        if not isinstance(
-            response_text,
-            str,
-        ):
+        if not isinstance(response_text, str):
             raise RuntimeError(
-                "Invalid Ollama response."
+                "Invalid Ollama response: "
+                "missing response text."
             )
 
         code = _clean_code(
@@ -85,9 +77,28 @@ def generate_variant(
                 "LLM returned empty code."
             )
 
+        tokens = {
+            key: result[key]
+            for key in (
+                "prompt_eval_count",
+                "eval_count",
+                "prompt_eval_duration",
+                "eval_duration",
+                "total_duration",
+                "load_duration",
+            )
+            if key in result
+        }
+
         return {
             "success": True,
             "code": code,
+            "tokens": tokens,
+            "response_metadata": {
+                key: value
+                for key, value in result.items()
+                if key != "response"
+            },
             "error": None,
         }
 
@@ -96,6 +107,8 @@ def generate_variant(
         return {
             "success": False,
             "code": None,
+            "tokens": {},
+            "response_metadata": {},
             "error": (
                 f"Ollama request failed: {exc}"
             ),
@@ -106,5 +119,7 @@ def generate_variant(
         return {
             "success": False,
             "code": None,
+            "tokens": {},
+            "response_metadata": {},
             "error": str(exc),
         }

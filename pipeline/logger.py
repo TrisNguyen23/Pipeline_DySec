@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
 
@@ -8,9 +9,6 @@ def save_json(
     path: Path,
     data: dict,
 ) -> None:
-    """
-    Save structured experiment data as JSON.
-    """
 
     path = Path(path)
 
@@ -36,9 +34,6 @@ def save_text(
     path: Path,
     text: str,
 ) -> None:
-    """
-    Save text data as UTF-8.
-    """
 
     path = Path(path)
 
@@ -50,4 +45,26 @@ def save_text(
     path.write_text(
         text,
         encoding="utf-8",
+    )
+
+
+def copy_directory(
+    source: Path,
+    destination: Path,
+) -> None:
+
+    source = Path(source).resolve()
+    destination = Path(destination).resolve()
+
+    if not source.exists():
+        raise FileNotFoundError(
+            f"Source does not exist: {source}"
+        )
+
+    if destination.exists():
+        shutil.rmtree(destination)
+
+    shutil.copytree(
+        source,
+        destination,
     )

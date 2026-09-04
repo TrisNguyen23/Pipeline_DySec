@@ -1,33 +1,12 @@
 from __future__ import annotations
 
+import shutil
 import tarfile
 from pathlib import Path
 
 
 class PackageExtractionError(RuntimeError):
     pass
-
-
-def _safe_extract(
-    archive: tarfile.TarFile,
-    destination: Path,
-) -> None:
-    destination = destination.resolve()
-
-    for member in archive.getmembers():
-        member_path = (
-            destination / member.name
-        ).resolve()
-
-        if not str(member_path).startswith(
-            str(destination) + "/"
-        ):
-            raise PackageExtractionError(
-                "Unsafe path detected in archive: "
-                f"{member.name}"
-            )
-
-    archive.extractall(destination)
 
 
 def extract_package(
@@ -49,35 +28,46 @@ def extract_package(
             f"{archive_path}"
         )
 
-    if not archive_path.is_file():
-        raise PackageExtractionError(
-            f"Package archive is not a file: "
-            f"{archive_path}"
-        )
-
     destination.mkdir(
         parents=True,
         exist_ok=True,
     )
 
-    try:
-        with tarfile.open(
-            archive_path,
-            mode="r:gz",
-        ) as archive:
+    with tarfile.open(
+        archive_path,
+        "r:gz",
+    ) as archive:
 
-            _safe_extract(
-                archive,
-                destination,
-            )
+        destination_root = destination.resolve()
 
-    except tarfile.TarError as exc:
-        raise PackageExtractionError(
-            f"Invalid tar.gz archive: "
-            f"{archive_path}"
-        ) from exc
+        for member in archive.getmembers():
 
-    return find_package_root(destination)
+            member_path = (
+                destination_root
+                / member.name
+            ).resolve()
+
+            if not str(member_path).startswith(
+                str(destination_root) + "/"
+            ):
+                raise PackageExtractionError(
+                    f"Unsafe archive path: "
+                    f"{member.name}"
+                )
+
+            if member.issym() or member.islnk():
+                raise PackageExtractionError(
+                    f"Links are not allowed in "
+                    f"package archive: {member.name}"
+                )
+
+        archive.extractall(
+            destination_root
+        )
+
+    return find_package_root(
+        destination_root
+    )
 
 
 def find_package_root(
@@ -88,38 +78,22 @@ def find_package_root(
         extracted_directory
     ).resolve()
 
-    entries = list(
-        extracted_directory.iterdir()
-    )
-
-    directories = [
-        path
-        for path in entries
-        if path.is_dir()
-    ]
-
-    files = [
-        path
-        for path in entries
-        if path.is_file()
-    ]
-
     if (
-        (
-            extracted_directory / "pyproject.toml"
-        ).exists()
+        (extracted_directory / "pyproject.toml").exists()
         or
-        (
-            extracted_directory / "setup.py"
-        ).exists()
+        (extracted_directory / "setup.py").exists()
         or
-        (
-            extracted_directory / "setup.cfg"
-        ).exists()
+        (extracted_directory / "setup.cfg").exists()
     ):
         return extracted_directory
 
-    package_directories = [
+    directories = sorted(
+        path
+        for path in extracted_directory.iterdir()
+        if path.is_dir()
+    )
+
+    package_roots = [
         path
         for path in directories
         if (
@@ -131,10 +105,10 @@ def find_package_root(
         )
     ]
 
-    if len(package_directories) == 1:
-        return package_directories[0]
+    if len(package_roots) == 1:
+        return package_roots[0]
 
-    if len(directories) == 1 and not files:
+    if len(directories) == 1:
         return find_package_root(
             directories[0]
         )
@@ -160,32 +134,25 @@ def collect_python_files(
     )
 
 
-def load_package_source(
-    package_root: Path,
-) -> dict:
+def copy_package(
+    source: Path,
+    destination: Path,
+) -> Path:
 
-    python_files = collect_python_files(
-        package_root
+    source = Path(source).resolve()
+    destination = Path(destination).resolve()
+
+    if not source.exists():
+        raise FileNotFoundError(
+            f"Package does not exist: {source}"
+        )
+
+    if destination.exists():
+        shutil.rmtree(destination)
+
+    shutil.copytree(
+        source,
+        destination,
     )
 
-    if not python_files:
-        raise PackageExtractionError(
-            f"No Python files found in "
-            f"{package_root}"
-        )
-
-    files = {}
-
-    for path in python_files:
-        relative_path = path.relative_to(
-            package_root
-        )
-
-        files[str(relative_path)] = (
-            path.read_text(
-                encoding="utf-8",
-                errors="replace",
-            )
-        )
-
-    return files
+    return destination
