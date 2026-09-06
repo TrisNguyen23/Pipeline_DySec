@@ -336,6 +336,7 @@ class LocalPackageTracer:
             "python3",
             "-m",
             "venv",
+            "--system-site-packages",
             str(env_dir),
         ]
 
@@ -469,6 +470,20 @@ class LocalPackageTracer:
             self.sandbox_gid,
         )
 
+        sandbox_package_dir = work_dir / package_dir.name
+
+        shutil.copytree(
+            package_dir,
+            sandbox_package_dir,
+        )
+
+        for path in [sandbox_package_dir, *sandbox_package_dir.rglob("*")]:
+            os.chown(
+                path,
+                self.sandbox_uid,
+                self.sandbox_gid,
+            )
+
         started_at = time.time()
 
         probe_set = ProbeSet(
@@ -517,7 +532,7 @@ class LocalPackageTracer:
 
             try:
                 result = self.install_local_package(
-                    package_dir=package_dir,
+                    package_dir=sandbox_package_dir,
                     env_dir=env_dir,
                 )
 
