@@ -485,15 +485,25 @@ class LocalPackageTracer:
         env_dir = None
 
         try:
+            env_dir = self.create_environment(work_dir)
 
-            env_dir = self.create_environment(
-                work_dir
+            venv_python = env_dir / "bin" / "python"
+
+            subprocess.run(
+                [
+                    str(venv_python),
+                    "-m",
+                    "ensurepip",
+                    "--upgrade",
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
             )
 
             print(
                 "[Tracer] Starting bpftrace probes..."
             )
-
             probe_set.start()
 
             print(
