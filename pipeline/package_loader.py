@@ -127,11 +127,26 @@ def collect_python_files(
         package_root
     ).resolve()
 
-    return sorted(
+    files = [
         path
         for path in package_root.rglob("*.py")
-        if path.is_file()
-    )
+        if (
+            path.is_file()
+            and path.stat().st_size > 0
+        )
+    ]
+
+    # Prefer actual implementation files over __init__.py
+    non_init_files = [
+        path
+        for path in files
+        if path.name != "__init__.py"
+    ]
+
+    if non_init_files:
+        files = non_init_files
+
+    return sorted(files)
 
 
 def copy_package(

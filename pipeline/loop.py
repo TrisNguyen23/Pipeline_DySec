@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import shutil
 from pathlib import Path
+import os
 
 from config.settings import (
     OUTPUT_DIR,
     ROUNDS_PER_STRATEGY,
     TRACE_DIR,
     SANDBOX_TIMEOUT,
+    SANDBOX_USER,
+    TRACE_WINDOW,
 )
 
 from config.strategies import STRATEGIES
@@ -33,8 +36,8 @@ from pipeline.validator import (
     validate_behavior,
 )
 
-from pipeline.executor import (
-    execute_package,
+from pipeline.trace_runner import (
+    trace_package,
 )
 
 from pipeline.evaluator import (
@@ -138,10 +141,12 @@ def run_package(
                 exist_ok=True,
             )
 
-            target_file = (
-                _find_target_source(
-                    current_package
-                )
+            # ----------------------------------------------------------
+            # 1. Find source code
+            # ----------------------------------------------------------
+
+            target_file = _find_target_source(
+                current_package
             )
 
             relative_path = str(
@@ -150,12 +155,14 @@ def run_package(
                 )
             )
 
-            source_code = (
-                target_file.read_text(
-                    encoding="utf-8",
-                    errors="replace",
-                )
+            source_code = target_file.read_text(
+                encoding="utf-8",
+                errors="replace",
             )
+
+            # ----------------------------------------------------------
+            # 2. Build prompt
+            # ----------------------------------------------------------
 
             prompt = build_prompt(
                 strategy=strategy,
@@ -167,6 +174,10 @@ def run_package(
                 round_dir / "prompt.txt",
                 prompt,
             )
+
+            # ----------------------------------------------------------
+            # 3. Generate variant
+            # ----------------------------------------------------------
 
             generation = generate_variant(
                 prompt
@@ -187,7 +198,11 @@ def run_package(
                     result,
                 )
 
-                return result
+                continue
+
+            # ----------------------------------------------------------
+            # 4. Create generated package
+            # ----------------------------------------------------------
 
             generated_package = (
                 round_dir
@@ -208,6 +223,15 @@ def run_package(
                 generation["code"],
                 encoding="utf-8",
             )
+
+            save_text(
+                round_dir / "generated_code.py",
+                generation["code"],
+            )
+
+            # ----------------------------------------------------------
+            # 5. Validate behaviour
+            # ----------------------------------------------------------
 
             behavior = validate_behavior(
                 original_package=original_root,
@@ -234,25 +258,35 @@ def run_package(
 
                 continue
 
-            execution = execute_package(
-                package_root=generated_package,
-                environment_directory=(
-                    round_dir
-                    / "execution_env"
-                ),
-                timeout=SANDBOX_TIMEOUT,
+            # ----------------------------------------------------------
+            # 6. Dynamic tracing
+            # ----------------------------------------------------------
+
+            trace_directory = _trace_path(
+                package_name,
+                strategy_name,
+                round_number,
             )
 
-            if not execution["success"]:
+            try:
+
+                trace_result = trace_package(
+                    package_dir=generated_package,
+                    trace_dir=trace_directory,
+                    sandbox_user=SANDBOX_USER,
+                    window=TRACE_WINDOW,
+                )
+
+            except Exception as exc:
 
                 result = {
                     "package": package_name,
                     "strategy": strategy_name,
                     "round": round_number,
-                    "status": "EXECUTION_ERROR",
+                    "status": "TRACING_ERROR",
                     "behavior_preserved": True,
                     "behavior_validation": behavior,
-                    "execution": execution,
+                    "error": str(exc),
                 }
 
                 save_json(
@@ -262,11 +296,52 @@ def run_package(
 
                 continue
 
-            trace_directory = _trace_path(
-                package_name,
-                strategy_name,
-                round_number,
+            save_json(
+                round_dir / "trace_result.json",
+                trace_result,
             )
+
+            if not trace_result["install_success"]:
+
+                result = {
+                    "package": package_name,
+                    "strategy": strategy_name,
+                    "round": round_number,
+                    "status": "TRACE_INSTALL_ERROR",
+                    "behavior_preserved": True,
+                    "behavior_validation": behavior,
+                    "trace_result": trace_result,
+                }
+
+                save_json(
+                    round_dir / "result.json",
+                    result,
+                )
+
+                continue
+
+            if not trace_result["trace_available"]:
+
+                result = {
+                    "package": package_name,
+                    "strategy": strategy_name,
+                    "round": round_number,
+                    "status": "NO_TRACE",
+                    "behavior_preserved": True,
+                    "behavior_validation": behavior,
+                    "trace_result": trace_result,
+                }
+
+                save_json(
+                    round_dir / "result.json",
+                    result,
+                )
+
+                continue
+
+            # ----------------------------------------------------------
+            # 7. DySec classification
+            # ----------------------------------------------------------
 
             try:
 
@@ -283,7 +358,7 @@ def run_package(
                     "status": "DYSEC_ERROR",
                     "behavior_preserved": True,
                     "behavior_validation": behavior,
-                    "execution": execution,
+                    "trace_result": trace_result,
                     "error": str(exc),
                 }
 
@@ -293,6 +368,10 @@ def run_package(
                 )
 
                 continue
+
+            # ----------------------------------------------------------
+            # 8. Save result
+            # ----------------------------------------------------------
 
             verdict = str(
                 dysec_result.get(
@@ -307,10 +386,10 @@ def run_package(
                     "package": package_name,
                     "strategy": strategy_name,
                     "round": round_number,
-                    "status": (
-                        "SUCCESSFUL_EVASION"
-                    ),
+                    "status": "SUCCESSFUL_EVASION",
                     "behavior_preserved": True,
+                    "behavior_validation": behavior,
+                    "trace_result": trace_result,
                     "dysec_verdict": verdict,
                     "dysec_result": dysec_result,
                 }
@@ -326,12 +405,15 @@ def run_package(
                 }
 
                 save_json(
-                    package_output
-                    / "summary.json",
+                    package_output / "summary.json",
                     summary,
                 )
 
                 return summary
+
+            # ----------------------------------------------------------
+            # 9. Detected → continue to next round
+            # ----------------------------------------------------------
 
             result = {
                 "package": package_name,
@@ -339,6 +421,8 @@ def run_package(
                 "round": round_number,
                 "status": "DETECTED",
                 "behavior_preserved": True,
+                "behavior_validation": behavior,
+                "trace_result": trace_result,
                 "dysec_verdict": verdict,
                 "dysec_result": dysec_result,
             }
@@ -350,13 +434,15 @@ def run_package(
 
             current_package = generated_package
 
+    # --------------------------------------------------------------
+    # 10. All strategies exhausted
+    # --------------------------------------------------------------
+
     summary = {
         "package": package_name,
         "strategy": None,
         "round": None,
-        "status": (
-            "ALL_STRATEGIES_EXHAUSTED"
-        ),
+        "status": "ALL_STRATEGIES_EXHAUSTED",
         "total_attempts": total_attempts,
         "dysec_verdict": None,
     }

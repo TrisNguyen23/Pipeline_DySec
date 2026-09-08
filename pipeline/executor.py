@@ -88,6 +88,7 @@ def execute_package(
         "install",
         "--no-deps",
         "--no-index",
+        "--no-build-isolation",
         str(package_root),
     ]
 

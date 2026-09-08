@@ -3,40 +3,52 @@ from __future__ import annotations
 from pathlib import Path
 
 from pipeline.trace_loader import load_trace
+from pipeline.dysec_classifier import classify_trace
+
+
+TRACE_FILE_NAME = "syscall_sequence.trace"
 
 
 def evaluate_trace(
     trace_path: Path,
 ) -> dict:
     """
-    Evaluate an externally generated DySec trace.
+    Evaluate a DySec trace directory.
 
-    The trace itself must already exist.
-    This function does not create traces.
+    The tracer produces multiple trace files.
+    The existing DySec predictor currently accepts
+    one trace file, so syscall_sequence.trace is used.
     """
 
     trace_path = Path(
         trace_path
     ).resolve()
 
-    trace = load_trace(
-        trace_path
-    )
-    from run_predict import predict_trace
-
-    result = predict_trace(
+    trace_metadata = load_trace(
         trace_path
     )
 
-    if not isinstance(result, dict):
-        raise RuntimeError(
-            "predict_trace() must return a dictionary."
+    if trace_path.is_dir():
+
+        classifier_trace = (
+            trace_path
+            / TRACE_FILE_NAME
         )
 
-    result["trace_path"] = str(
+    else:
+
+        classifier_trace = trace_path
+
+    result = classify_trace(
+        classifier_trace
+    )
+
+    result["trace_directory"] = str(
         trace_path
     )
 
-    result["trace_metadata"] = trace
+    result["trace_metadata"] = (
+        trace_metadata
+    )
 
     return result
