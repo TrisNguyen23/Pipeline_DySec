@@ -32,9 +32,11 @@ def execute_package(
         exist_ok=True,
     )
 
-    venv_python = environment_directory / "bin" / "python"
+    venv_python = (
+        environment_directory / "bin" / "python"
+    )
 
-    # Create an isolated virtual environment if it does not exist.
+    # Create an isolated virtual environment.
     if not venv_python.exists():
         create_command = [
             PYTHON_EXECUTABLE,
@@ -81,13 +83,62 @@ def execute_package(
                 ),
             }
 
+    # Ensure the build backend is available.
+    build_tools_command = [
+        str(venv_python),
+        "-m",
+        "pip",
+        "install",
+        "--upgrade",
+        "setuptools",
+        "wheel",
+    ]
+
+    try:
+        build_tools = subprocess.run(
+            build_tools_command,
+            cwd=str(package_root),
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        return {
+            "success": False,
+            "return_code": None,
+            "stdout": exc.stdout or "",
+            "stderr": exc.stderr or "",
+            "duration": 0.0,
+            "timed_out": True,
+            "command": build_tools_command,
+            "package_root": str(package_root),
+            "environment_directory": str(
+                environment_directory
+            ),
+        }
+
+    if build_tools.returncode != 0:
+        return {
+            "success": False,
+            "return_code": build_tools.returncode,
+            "stdout": build_tools.stdout,
+            "stderr": build_tools.stderr,
+            "duration": 0.0,
+            "timed_out": False,
+            "command": build_tools_command,
+            "package_root": str(package_root),
+            "environment_directory": str(
+                environment_directory
+            ),
+        }
+
     pip_command = [
         str(venv_python),
         "-m",
         "pip",
         "install",
         "--no-deps",
-        "--no-index",
         "--no-build-isolation",
         str(package_root),
     ]

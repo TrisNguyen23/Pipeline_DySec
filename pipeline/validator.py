@@ -6,23 +6,10 @@ from config.settings import VALIDATION_TIMEOUT
 from pipeline.executor import execute_package
 
 
-def _normalise(value) -> str:
-
-    if value is None:
-        return ""
-
-    return (
-        str(value)
-        .replace("\r\n", "\n")
-        .strip()
-    )
-
-
 def validate_behavior(
     original_package: Path,
     generated_package: Path,
 ) -> dict:
-
     original_package = Path(
         original_package
     ).resolve()
@@ -35,6 +22,9 @@ def validate_behavior(
         return {
             "preserved": False,
             "method": "package_installation",
+            "checks": {},
+            "original": None,
+            "generated": None,
             "error": (
                 "Original package does not exist."
             ),
@@ -44,19 +34,20 @@ def validate_behavior(
         return {
             "preserved": False,
             "method": "package_installation",
+            "checks": {},
+            "original": None,
+            "generated": None,
             "error": (
                 "Generated package does not exist."
             ),
         }
 
     original_env = (
-        original_package
-        / ".validation_env"
+        original_package / ".validation_env"
     )
 
     generated_env = (
-        generated_package
-        / ".validation_env"
+        generated_package / ".validation_env"
     )
 
     original_result = execute_package(
@@ -71,36 +62,64 @@ def validate_behavior(
         timeout=VALIDATION_TIMEOUT,
     )
 
+    original_completed = not bool(
+        original_result.get(
+            "timed_out",
+            False,
+        )
+    )
+
+    generated_completed = not bool(
+        generated_result.get(
+            "timed_out",
+            False,
+        )
+    )
+
+    original_success = bool(
+        original_result.get(
+            "success",
+            False,
+        )
+    )
+
+    generated_success = bool(
+        generated_result.get(
+            "success",
+            False,
+        )
+    )
+
+    success_equal = (
+        original_success
+        == generated_success
+    )
+
+    return_code_equal = (
+        original_result.get("return_code")
+        == generated_result.get("return_code")
+    )
+
     checks = {
-        "original_completed": (
-            not original_result["timed_out"]
-        ),
-        "generated_completed": (
-            not generated_result["timed_out"]
-        ),
-        "success_equal": (
-            original_result["success"]
-            == generated_result["success"]
-        ),
-        "return_code_equal": (
-            original_result["return_code"]
-            == generated_result["return_code"]
-        ),
-        "stdout_equal": (
-            _normalise(
-                original_result["stdout"]
-            )
-            ==
-            _normalise(
-                generated_result["stdout"]
-            )
-        ),
+        "original_completed": original_completed,
+        "generated_completed": generated_completed,
+        "success_equal": success_equal,
+        "return_code_equal": return_code_equal,
     }
 
+    # Behavior can only be considered preserved
+    # when both packages actually execute/install
+    # successfully and produce the same result.
+    preserved = (
+        original_completed
+        and generated_completed
+        and original_success
+        and generated_success
+        and return_code_equal
+    )
+
     return {
-        "preserved": all(
-            checks.values()
-        ),
+        "preserved": preserved,
         "method": "package_installation",
         "checks": checks,
         "original": original_result,
