@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 
 #python3 tracer.py <package>
-#python3 tracer.py <package> <version>
+# python3 tracer.py <package> <version>
 #python3 tracer.py <package> --output <directory>
-#python3 tracer.py ./my-package
+# python3 tracer.py my-package(local)
 #python3 tracer.py <package> --output <directory>
 
 from __future__ import annotations
@@ -284,3 +284,25 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+#six
+#requests
+#urllib3
+#certifi
+##charset-normalizer
+#idna
+#click
+#colorama
+#packaging
+#pyparsing
+#python-dateutil
+#typing-extensions
+#attrs
+#pytz
+#Jinja2
+#MarkupSafe
+#PyYAML
+#tomli
+#flask
+#beautifulsoup4
