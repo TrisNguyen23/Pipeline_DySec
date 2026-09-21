@@ -1,166 +1,244 @@
-import os
-import sys
-import warnings
-
-warnings.filterwarnings("ignore")
+import argparse
+import json
+from pathlib import Path
 
 import joblib
-import numpy as np
-
-from config.settings import MODEL_PATH
-
-
-def load_dysec_model(path):
-
-    try:
-        return joblib.load(path)
-
-    except Exception:
-
-        import pickle
-
-        with open(path, "rb") as f:
-            return pickle.load(f)
+import pandas as pd
+from scipy.sparse import hstack, csr_matrix
 
 
-def build_feature_vector(trace_path, model):
+def load_artifacts(model_dir):
+    model_dir = Path(model_dir)
 
-    total_syscalls = 0
+    vectorizer = joblib.load(model_dir / "Combined_vectorizer.pkl")
+    scaler = joblib.load(model_dir / "Combined_scaler.pkl")
+    model = joblib.load(model_dir / "Combined_rf_model.pkl")
 
-    if os.path.exists(trace_path):
+    with open(model_dir / "Combined_schema.json", "r", encoding="utf-8") as f:
+        schema = json.load(f)
 
-        with open(
-            trace_path,
-            "r",
-            errors="ignore"
-        ) as f:
+    with open(model_dir / "Combined_metrics.json", "r", encoding="utf-8") as f:
+        metrics = json.load(f)
 
-            total_syscalls = sum(
-                1 for _ in f
-            )
+    return vectorizer, scaler, model, schema, metrics
 
-    n_features = getattr(
+
+def prepare_features(df, schema, vectorizer):
+    numeric_columns = schema["numeric_columns"]
+    categorical_columns = schema["categorical_columns"]
+
+    required_columns = numeric_columns + categorical_columns
+    missing = [col for col in required_columns if col not in df.columns]
+
+    if missing:
+        raise ValueError(
+            "Missing required feature columns:\n"
+            + "\n".join(f"  - {col}" for col in missing)
+        )
+
+    # -----------------------------
+    # Numeric features
+    # -----------------------------
+    numerical_features = (
+        df[numeric_columns]
+        .fillna(0)
+        .apply(pd.to_numeric, errors="coerce")
+        .fillna(0)
+        .astype(float)
+    )
+
+    numerical_sparse = csr_matrix(numerical_features.values)
+
+    # -----------------------------
+    # Categorical features
+    # -----------------------------
+    combined_categorical = (
+        df[categorical_columns]
+        .fillna("")
+        .astype(str)
+        .agg(" ".join, axis=1)
+    )
+
+    categorical_ngrams = vectorizer.transform(combined_categorical)
+
+    # Same order as the original training pipeline:
+    # numeric features first, categorical ngrams second.
+    X = hstack(
+        [numerical_sparse, categorical_ngrams],
+        format="csr",
+    )
+
+    return X
+
+
+def predict(input_csv, model_dir):
+    print("=" * 70)
+    print("DySec RF Inference")
+    print("=" * 70)
+
+    print(f"[+] Loading input: {input_csv}")
+
+    df = pd.read_csv(input_csv)
+
+    print(f"[+] Input rows: {len(df)}")
+    print(f"[+] Input columns: {len(df.columns)}")
+
+    (
+        vectorizer,
+        scaler,
         model,
-        "n_features_in_",
-        188
+        schema,
+        metrics,
+    ) = load_artifacts(model_dir)
+
+    print("[+] Loaded RF artifacts")
+    print(f"    Vectorizer features : {len(vectorizer.vocabulary_):,}")
+    print(f"    Scaler features     : {scaler.n_features_in_:,}")
+    print(f"    RF model features   : {model.n_features_in_:,}")
+    print(f"    RF classes          : {model.classes_}")
+
+    # ---------------------------------------------------------
+    # Validate artifact dimensions before doing inference
+    # ---------------------------------------------------------
+    expected_features = (
+        len(vectorizer.vocabulary_)
+        + len(schema["numeric_columns"])
     )
 
-    feature_vector = np.zeros(
-        (1, n_features)
-    )
-
-    if total_syscalls > 0:
-
-        feature_vector[
-            0,
-            :min(total_syscalls, n_features)
-        ] = 1.0
-
-    return feature_vector, total_syscalls
-
-
-def predict_trace(trace_path):
-
-    model = load_dysec_model(
-        MODEL_PATH
-    )
-
-    feature_vector, total_syscalls = (
-        build_feature_vector(
-            trace_path,
-            model
-        )
-    )
-
-    prediction = model.predict(
-        feature_vector
-    )[0]
-
-    probabilities = None
-
-    if hasattr(model, "predict_proba"):
-
-        probabilities = (
-            model.predict_proba(
-                feature_vector
-            )[0]
+    if expected_features != scaler.n_features_in_:
+        raise ValueError(
+            f"Feature dimension mismatch:\n"
+            f"  vectorizer + numeric = {expected_features}\n"
+            f"  scaler expects       = {scaler.n_features_in_}"
         )
 
-    prediction_str = str(
-        prediction
-    ).lower()
-
-    if prediction_str in [
-        "0",
-        "benign"
-    ]:
-        verdict = "BENIGN"
-    else:
-        verdict = "MALICIOUS"
-
-    confidence = None
-
-    if probabilities is not None:
-
-        confidence = float(
-            max(probabilities)
+    if scaler.n_features_in_ != model.n_features_in_:
+        raise ValueError(
+            f"Scaler/model dimension mismatch:\n"
+            f"  scaler = {scaler.n_features_in_}\n"
+            f"  model  = {model.n_features_in_}"
         )
 
-    return {
-        "verdict": verdict,
-        "prediction": str(prediction),
-        "confidence": confidence,
-        "total_syscalls": total_syscalls,
-    }
+    print(f"[+] Feature dimension verified: {expected_features:,}")
+
+    # ---------------------------------------------------------
+    # Feature preparation
+    # ---------------------------------------------------------
+    X = prepare_features(
+        df,
+        schema,
+        vectorizer,
+    )
+
+    print(f"[+] Constructed feature matrix: {X.shape}")
+
+    if X.shape[1] != scaler.n_features_in_:
+        raise ValueError(
+            f"Constructed feature matrix has {X.shape[1]:,} "
+            f"features, but scaler expects {scaler.n_features_in_:,}."
+        )
+
+    # ---------------------------------------------------------
+    # IMPORTANT:
+    # transform() only.
+    # No fit().
+    # ---------------------------------------------------------
+    print("[+] Applying pretrained scaler...")
+    X_scaled = scaler.transform(X)
+
+    print(f"[+] Scaled feature matrix: {X_scaled.shape}")
+
+    # ---------------------------------------------------------
+    # Pretrained RF inference
+    # ---------------------------------------------------------
+    print("[+] Running pretrained RF inference...")
+
+    predictions = model.predict(X_scaled)
+
+    probabilities = model.predict_proba(X_scaled)
+
+    malicious_index = list(model.classes_).index(
+        schema["malicious_value"]
+    )
+
+    malicious_probability = probabilities[:, malicious_index]
+
+    # ---------------------------------------------------------
+    # Results
+    # ---------------------------------------------------------
+    results = df.copy()
+
+    results["prediction"] = predictions
+    results["verdict"] = [
+        "MALICIOUS" if p == schema["malicious_value"] else "BENIGN"
+        for p in predictions
+    ]
+
+    results["malicious_probability"] = malicious_probability
+
+    print()
+    print("=" * 70)
+    print("RESULTS")
+    print("=" * 70)
+
+    for i, prediction in enumerate(predictions):
+        probability = malicious_probability[i]
+
+        print(
+            f"Row {i}: "
+            f"prediction={prediction}, "
+            f"verdict={results.loc[i, 'verdict']}, "
+            f"malicious_probability={probability:.4f}"
+        )
+
+    # ---------------------------------------------------------
+    # Save results
+    # ---------------------------------------------------------
+    input_path = Path(input_csv)
+
+    output_path = (
+        input_path.parent
+        / f"{input_path.stem}_rf_prediction.csv"
+    )
+
+    results.to_csv(
+        output_path,
+        index=False,
+    )
+
+    print()
+    print(f"[+] Results saved to: {output_path}")
+
+    return results
 
 
 def main():
-
-    if len(sys.argv) > 1:
-
-        trace_path = sys.argv[1]
-
-    else:
-
-        print(
-            "Usage: python run_predict.py <trace>"
-        )
-
-        return
-
-    result = predict_trace(
-        trace_path
+    parser = argparse.ArgumentParser(
+        description="Run pretrained DySec RF inference."
     )
 
-    print("=" * 60)
-    print("DYSEC CLASSIFICATION")
-    print("=" * 60)
-
-    print(
-        f"Trace: {trace_path}"
+    parser.add_argument(
+        "input_csv",
+        help="CSV containing the 14 numeric + 25 categorical features.",
     )
 
-    print(
-        f"Syscalls: "
-        f"{result['total_syscalls']:,}"
+    parser.add_argument(
+        "--model-dir",
+        default="models/rf",
+        help=(
+            "Directory containing "
+            "Combined_vectorizer.pkl, Combined_scaler.pkl, "
+            "Combined_rf_model.pkl, Combined_schema.json, "
+            "and Combined_metrics.json."
+        ),
     )
 
-    print(
-        f"Verdict: "
-        f"{result['verdict']}"
+    args = parser.parse_args()
+
+    predict(
+        input_csv=args.input_csv,
+        model_dir=args.model_dir,
     )
-
-    print(
-        f"Prediction: "
-        f"{result['prediction']}"
-    )
-
-    if result["confidence"] is not None:
-
-        print(
-            f"Confidence: "
-            f"{result['confidence'] * 100:.2f}%"
-        )
 
 
 if __name__ == "__main__":
