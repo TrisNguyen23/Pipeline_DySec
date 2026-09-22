@@ -72,7 +72,7 @@ TEMPERATURE = float(
 LLM_TIMEOUT = int(
     os.getenv(
         "LLM_TIMEOUT",
-        "120",
+        "200",
     )
 )
 

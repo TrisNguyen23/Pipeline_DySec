@@ -2,69 +2,95 @@ STRATEGIES = [
     {
         "name": "strategy_A",
         "description": """
-Apply structural refactoring while preserving the
-original observable behavior and side effects.
+Apply structural refactoring to the internal Python source code while
+preserving all observable behavior and side effects.
 
-Use equivalent restructuring of functions,
-control flow, statements, and code organization.
+Focus ONLY on code organisation and structure, such as:
+- reorganising statements or code blocks
+- restructuring equivalent function organisation
+- simplifying or rearranging internal code layout
+- removing redundant structural patterns without changing semantics
 
-Do not change:
-- inputs
-- outputs
-- return values
-- exceptions that are part of the original behavior
-- externally visible side effects
-- package interfaces
-- required dependencies
-- installation behavior
+Do NOT intentionally change the execution logic or implementation technique.
 
-The resulting program must remain executable.
+CRITICAL COMPATIBILITY CONSTRAINTS:
+- ONLY modify internal Python source files (.py).
+- ABSOLUTELY DO NOT modify, create, delete, or touch:
+  setup.py, pyproject.toml, setup.cfg, MANIFEST.in, or any package metadata files.
+- DO NOT add, remove, rename, upgrade, downgrade, or replace dependencies.
+- Preserve all existing imports and dependency requirements.
+- Preserve function signatures, module names, public APIs, inputs, outputs,
+  return values, exceptions, and externally observable side effects.
+- Do not introduce new functionality or remove existing functionality.
+- The resulting source code must be syntactically valid Python.
+- The resulting package must remain installable using the original packaging
+  configuration.
+
+Only apply transformations that are semantically equivalent to the original.
 """,
     },
 
     {
         "name": "strategy_B",
         "description": """
-Apply function decomposition and equivalent
-control-flow restructuring.
+Apply function decomposition and control-flow restructuring to the internal
+Python source code while preserving all observable behavior and side effects.
 
-You may split existing logic into helper functions
-or reorganize equivalent execution paths.
+Focus on transformations such as:
+- splitting large functions into equivalent helper functions
+- reorganising conditional branches
+- restructuring loops while preserving their semantics
+- replacing equivalent control-flow patterns
+- reorganising execution paths without changing their observable results
 
-Preserve exactly the same observable behavior
-and side effects.
+CRITICAL COMPATIBILITY CONSTRAINTS:
+- ONLY modify internal Python source files (.py).
+- ABSOLUTELY DO NOT modify, create, delete, or touch:
+  setup.py, pyproject.toml, setup.cfg, MANIFEST.in, or any package metadata files.
+- DO NOT add, remove, rename, upgrade, downgrade, or replace dependencies.
+- Preserve all existing imports and dependency requirements.
+- Keep all function signatures, module names, and public APIs identical.
+- Preserve inputs, outputs, return values, exceptions, and externally
+  observable side effects.
+- Do not introduce new functionality or remove existing functionality.
+- The resulting source code must be syntactically valid Python.
+- The resulting package must remain installable using the original packaging
+  configuration.
 
-Do not introduce new functionality.
-Do not remove existing functionality.
-Do not change inputs, outputs, return values,
-exceptions, package interfaces, or dependencies.
+Only apply transformations that are semantically equivalent to the original.
 """,
     },
 
     {
         "name": "strategy_C",
         "description": """
-Apply implementation-level refactoring.
+Apply implementation-level refactoring to the internal Python source code
+while preserving all observable behavior and side effects.
 
-Possible transformations include:
-- equivalent API usage
-- variable renaming
-- local implementation restructuring
+Focus on alternative but semantically equivalent implementations, such as:
 - equivalent expression transformations
-- alternative but semantically equivalent organization
+- local variable and intermediate-value restructuring
+- equivalent API usage where the dependency and API contract remain unchanged
+- replacing equivalent implementation idioms
+- reorganising local computations
 
-Preserve behavior and side effects exactly.
+Do NOT modify the overall package architecture or public interfaces.
 
-Do not change:
-- public interfaces
-- package metadata
-- dependencies
-- inputs
-- outputs
-- return values
-- externally observable side effects
+CRITICAL COMPATIBILITY CONSTRAINTS:
+- ONLY modify internal Python source files (.py).
+- ABSOLUTELY DO NOT modify, create, delete, or touch:
+  setup.py, pyproject.toml, setup.cfg, MANIFEST.in, or any package metadata files.
+- DO NOT add, remove, rename, upgrade, downgrade, or replace dependencies.
+- Preserve all existing imports and dependency requirements.
+- Keep all function signatures, module names, and public APIs identical.
+- Preserve inputs, outputs, return values, exceptions, and externally
+  observable side effects.
+- Do not introduce new functionality or remove existing functionality.
+- The resulting source code must be syntactically valid Python.
+- The resulting package must remain installable using the original packaging
+  configuration.
 
-Only make transformations that remain semantically equivalent.
+Only apply transformations that are semantically equivalent to the original.
 """,
     },
 ]

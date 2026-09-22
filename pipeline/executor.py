@@ -42,6 +42,7 @@ def execute_package(
             PYTHON_EXECUTABLE,
             "-m",
             "venv",
+            "--system-site-packages",
             str(environment_directory),
         ]
 
