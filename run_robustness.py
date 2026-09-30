@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import csv
 from pathlib import Path
 
@@ -62,6 +63,7 @@ def save_results(
         writer = csv.DictWriter(
             file,
             fieldnames=fieldnames,
+            extrasaction="ignore",
         )
 
         writer.writeheader()
@@ -73,16 +75,41 @@ def save_results(
 
 def main() -> None:
 
+    parser = argparse.ArgumentParser(
+        description=(
+            "Run the DySec robustness "
+            "evaluation pipeline."
+        )
+    )
+
+    parser.add_argument(
+        "--method",
+        choices=[
+            "proposed",
+            "function_level",
+        ],
+        default="proposed",
+        help=(
+            "Mutation strategy used by "
+            "the robustness pipeline."
+        ),
+    )
+
+    args = parser.parse_args()
+
     archives = discover_archives()
 
     if not archives:
-
         raise RuntimeError(
             "No .tar.gz packages found."
         )
 
     print(
         f"Found {len(archives)} packages."
+    )
+
+    print(
+        f"Method: {args.method}"
     )
 
     results = []
@@ -93,8 +120,8 @@ def main() -> None:
     ):
 
         package_name = (
-            archive.stem
-            .removesuffix(".tar")
+            archive.name
+            .removesuffix(".tar.gz")
         )
 
         print()
@@ -108,8 +135,8 @@ def main() -> None:
         try:
 
             result = run_package(
-                package_name=package_name,
                 archive_path=archive,
+                method=args.method,
             )
 
             results.append(result)
@@ -134,7 +161,9 @@ def main() -> None:
 
     print()
     print("=" * 70)
-    print("ROBUSTNESS EVALUATION COMPLETE")
+    print(
+        "ROBUSTNESS EVALUATION COMPLETE"
+    )
     print("=" * 70)
 
 

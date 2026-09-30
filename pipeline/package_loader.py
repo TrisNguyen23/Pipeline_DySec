@@ -9,6 +9,18 @@ class PackageExtractionError(RuntimeError):
     pass
 
 
+# setup.py is intentionally allowed as a mutation target because
+# the malicious packages in this dataset place their relevant
+# installation behaviour there.
+#
+# Other packaging/configuration files are not mutation targets.
+NON_MUTATABLE_PACKAGING_FILES = {
+    "setup.cfg",
+    "pyproject.toml",
+    "MANIFEST.in",
+}
+
+
 def extract_package(
     archive_path: Path,
     destination: Path,
@@ -136,17 +148,75 @@ def collect_python_files(
         )
     ]
 
-    # Prefer actual implementation files over __init__.py
+    return sorted(files)
+
+
+def collect_transformable_python_files(
+    package_root: Path,
+) -> list[Path]:
+
+    package_root = Path(
+        package_root
+    ).resolve()
+
+    setup_py = package_root / "setup.py"
+
+    # setup.py is the primary mutation target for this dataset.
+    # If it exists and contains source, use it directly.
+    if (
+        setup_py.is_file()
+        and setup_py.stat().st_size > 0
+    ):
+        return [setup_py]
+
+    candidates: list[Path] = []
+
+    for path in package_root.rglob("*.py"):
+
+        if not path.is_file():
+            continue
+
+        if path.stat().st_size == 0:
+            continue
+
+        relative_path = path.relative_to(
+            package_root
+        )
+
+        # Never mutate tests.
+        if any(
+            part.lower() in {
+                "test",
+                "tests",
+            }
+            for part in relative_path.parts
+        ):
+            continue
+
+        # setup.py was already handled above.
+        #
+        # Other packaging/configuration Python files should
+        # not become mutation targets.
+        if path.name in NON_MUTATABLE_PACKAGING_FILES:
+            continue
+
+        # Empty __init__.py files are already excluded by
+        # the size check. Non-empty __init__.py files remain
+        # valid implementation candidates when no setup.py
+        # target exists.
+        candidates.append(path)
+
+    # Prefer actual implementation files over __init__.py.
     non_init_files = [
         path
-        for path in files
+        for path in candidates
         if path.name != "__init__.py"
     ]
 
     if non_init_files:
-        files = non_init_files
+        return sorted(non_init_files)
 
-    return sorted(files)
+    return sorted(candidates)
 
 
 def copy_package(
@@ -171,3 +241,37 @@ def copy_package(
     )
 
     return destination
+def create_package_archive(
+    package_root: Path,
+    archive_path: Path,
+) -> Path:
+    package_root = Path(package_root).resolve()
+    archive_path = Path(archive_path).resolve()
+
+    if not package_root.exists():
+        raise FileNotFoundError(
+            f"Package root does not exist: {package_root}"
+        )
+
+    archive_path.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    if archive_path.exists():
+        archive_path.unlink()
+
+    with tarfile.open(
+        archive_path,
+        "w:gz",
+    ) as archive:
+        for path in sorted(package_root.rglob("*")):
+            archive.add(
+                path,
+                arcname=path.relative_to(
+                    package_root.parent
+                ),
+                recursive=False,
+            )
+
+    return archive_path

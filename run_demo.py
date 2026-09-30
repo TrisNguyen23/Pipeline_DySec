@@ -7,18 +7,14 @@ from pipeline.loop import run_package
 
 
 def main() -> None:
-
     if len(sys.argv) != 2:
-
         print(
             "Usage:"
         )
-
         print(
             "python3 run_demo.py "
             "<package.tar.gz>"
         )
-
         sys.exit(1)
 
     archive_path = Path(
@@ -26,19 +22,12 @@ def main() -> None:
     ).resolve()
 
     if not archive_path.exists():
-
         raise FileNotFoundError(
             f"Package archive not found: "
             f"{archive_path}"
         )
 
-    package_name = (
-        archive_path.stem
-        .removesuffix(".tar")
-    )
-
     result = run_package(
-        package_name=package_name,
         archive_path=archive_path,
     )
 

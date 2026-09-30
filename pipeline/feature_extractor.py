@@ -1,228 +1,514 @@
 """
-DySec Feature Extractor
-Extracts 39 raw features (14 numeric + 25 categorical) from raw eBPF and runtime traces.
-Compatible with Tanzir's Combined_schema.json and offline inference pipeline.
+DySec feature extraction for Tanzir's 39-feature inference bundle.
+
+IMPORTANT:
+- This extractor does NOT fabricate missing features.
+- It reads the canonical QUT-DV25 trace directories directly.
+- It derives Pattern_1..Pattern_10 from the actual strace stream when no
+  separate processed pattern file is present.
+- Missing pattern occurrences are represented by "" (empty string), never
+  by None or invented defaults.
 """
 
-import os
-import re
+from __future__ import annotations
+
+import ipaddress
 import json
-from typing import Dict, Any, Optional
+import re
+from collections import OrderedDict
+from pathlib import Path
+from typing import Iterable
+
 import pandas as pd
+
+
+TRACE_DIRS = {
+    "filetop": "QUT-DV25_Filetop_Traces",
+    "installation": "QUT-DV25_Installation_Traces",
+    "opensnoop": "QUT-DV25_Opensnoop_Traces",
+    "tcp": "QUT-DV25_TCP_Traces",
+    "pattern": "QUT-DV25_Pattern_Traces",
+    "syscall": "QUT-DV25_SystemCall_Traces",
+}
+
+SYSCALL_GROUPS = OrderedDict(
+    [
+        (
+            "IO_Operations",
+            {
+                "ioctl", "poll", "readv", "writev", "lseek", "fcntl",
+                "pselect6", "ppoll", "select", "io_uring_enter",
+            },
+        ),
+        (
+            "File_Operations",
+            {
+                "open", "openat", "openat2", "creat", "read", "pread64",
+                "write", "pwrite64", "close", "lseek", "fstat", "newfstatat",
+                "stat", "statx", "getdents", "getdents64", "readlink",
+                "readlinkat", "unlink", "unlinkat", "rename", "renameat",
+                "renameat2", "mkdir", "mkdirat", "rmdir", "chmod", "fchmod",
+                "truncate", "ftruncate", "fsync", "fdatasync",
+            },
+        ),
+        (
+            "Network_Operations",
+            {
+                "socket", "socketpair", "connect", "accept", "accept4",
+                "bind", "listen", "sendto", "sendmsg", "sendmmsg", "recvfrom",
+                "recvmsg", "recvmmsg", "getsockname", "getpeername",
+                "shutdown", "setsockopt", "getsockopt",
+            },
+        ),
+        (
+            "Time_Operations",
+            {
+                "clock_gettime", "clock_nanosleep", "nanosleep", "time",
+                "timer_create", "timer_delete", "timer_settime",
+                "timer_gettime", "alarm", "gettimeofday",
+            },
+        ),
+        (
+            "Security_Operations",
+            {
+                "getuid", "geteuid", "setuid", "setreuid", "setresuid",
+                "getgid", "getegid", "setgid", "setregid", "setresgid",
+                "capget", "capset", "prctl", "seccomp",
+            },
+        ),
+        (
+            "Process_Operations",
+            {
+                "fork", "vfork", "clone", "clone3", "execve", "execveat",
+                "wait4", "waitid", "exit", "exit_group", "kill", "tkill",
+                "tgkill", "getpid", "getppid",
+            },
+        ),
+    ]
+)
+
+PATTERN_DEFS = {
+    "Pattern_1": ("newfstatat", "openat", "fstat"),
+    "Pattern_2": ("read", "pread64", "lseek"),
+    "Pattern_3": ("write", "pwrite64", "fsync"),
+    "Pattern_4": ("socket", "bind", "listen"),
+    "Pattern_5": ("fork", "execve", "wait4"),
+    "Pattern_6": ("mmap", "mprotect", "munmap"),
+    "Pattern_7": ("dup", "dup2", "close"),
+    "Pattern_8": ("pipe", "write", "read"),
+    "Pattern_9": ("fcntl", "lockf", "close"),
+    "Pattern_10": ("open", "read"),
+}
+
+STRACE_LINE_RE = re.compile(
+    r'^\s*(?:(?:\d+:\d+:\d+(?:\.\d+)?)\s+)?'
+    r'(?:\[pid\s+\d+\]\s+)?'
+    r'([A-Za-z_][A-Za-z0-9_]*)\s*\('
+)
+
+ERROR_RE = re.compile(r"=\s*-1\s+([A-Z][A-Z0-9_]+)\b")
+ABS_PATH_RE = re.compile(r'(?<![A-Za-z0-9_.-])/(?:[^ \t\r\n"\'<>]|\\ )+')
+
+
+def _read(path: Path) -> str:
+    return path.read_text(encoding="utf-8", errors="replace")
+
+
+def _files(root: Path, dirname: str, pattern: str = "*") -> list[Path]:
+    d = root / dirname
+    if not d.is_dir():
+        return []
+    return sorted(p for p in d.rglob(pattern) if p.is_file())
+
+
+def _first_existing(root: Path, dirname: str, names: Iterable[str]) -> Path | None:
+    for name in names:
+        p = root / dirname / name
+        if p.is_file():
+            return p
+    return None
+
+
+def _ordered_unique(values: Iterable[str]) -> list[str]:
+    seen = set()
+    out = []
+    for value in values:
+        value = str(value).strip()
+        if value and value not in seen:
+            seen.add(value)
+            out.append(value)
+    return out
+
+
+def _parse_strace_line(line: str) -> tuple[str | None, str | None]:
+    m = STRACE_LINE_RE.search(line)
+    if not m:
+        return None, None
+    syscall = m.group(1).lower()
+    err = ERROR_RE.search(line)
+    return syscall, (err.group(1) if err else None)
+
+
+def _strace_files(root: Path) -> list[Path]:
+    # Only canonical strace_output_* files under Pattern_Traces are accepted.
+    return _files(root, TRACE_DIRS["pattern"], "strace_output_*")
+
+
+def _syscall_events(root: Path) -> tuple[list[str], list[str], int]:
+    events: list[str] = []
+    errors: list[str] = []
+    raw_lines = 0
+    for path in _strace_files(root):
+        for line in _read(path).splitlines():
+            raw_lines += 1
+            syscall, err = _parse_strace_line(line)
+            if syscall:
+                events.append(syscall)
+                if err:
+                    errors.append(err)
+    return events, errors, raw_lines
+
+
+def _extract_paths(text: str) -> list[str]:
+    return [m.group(0).replace("\\ ", " ") for m in ABS_PATH_RE.finditer(text)]
+
+
+def _opensnoop_features(root: Path) -> dict:
+    files = _files(root, TRACE_DIRS["opensnoop"], "*")
+    if not files:
+        raise ValueError("Missing QUT-DV25_Opensnoop_Traces evidence.")
+
+    counts = {
+        "Root_DIR_Access": 0,
+        "Temp_DIR_Access": 0,
+        "Home_DIR_Access": 0,
+        "User_DIR_Access": 0,
+        "Sys_DIR_Access": 0,
+        "Etc_DIR_Access": 0,
+        "Other_DIR_Access": 0,
+    }
+
+    for path in files:
+        for line in _read(path).splitlines():
+            for candidate in _extract_paths(line):
+                # Avoid substring errors such as /home appearing inside another path.
+                p = candidate.rstrip(",;")
+                if p == "/root" or p.startswith("/root/"):
+                    counts["Root_DIR_Access"] += 1
+                elif p == "/tmp" or p.startswith("/tmp/"):
+                    counts["Temp_DIR_Access"] += 1
+                elif p == "/home" or p.startswith("/home/"):
+                    counts["Home_DIR_Access"] += 1
+                elif p == "/usr" or p.startswith("/usr/"):
+                    counts["User_DIR_Access"] += 1
+                elif p == "/sys" or p.startswith("/sys/"):
+                    counts["Sys_DIR_Access"] += 1
+                elif p == "/etc" or p.startswith("/etc/"):
+                    counts["Etc_DIR_Access"] += 1
+                else:
+                    counts["Other_DIR_Access"] += 1
+
+    return counts
+
+
+def _tcp_features(root: Path) -> dict:
+    files = _files(root, TRACE_DIRS["tcp"], "*")
+    if not files:
+        raise ValueError("Missing QUT-DV25_TCP_Traces evidence.")
+
+    local_ips: set[str] = set()
+    remote_ips: set[str] = set()
+    local_ports: set[str] = set()
+    remote_ports: set[str] = set()
+    transitions: list[str] = []
+
+    header_idx = None
+    for path in files:
+        lines = _read(path).splitlines()
+        for line in lines:
+            stripped = line.strip()
+            if not stripped:
+                continue
+
+            if stripped.startswith("SKADDR") and "LADDR" in stripped and "RADDR" in stripped:
+                cols = stripped.split()
+                header_idx = {name: cols.index(name) for name in ("LADDR", "LPORT", "RADDR", "RPORT")
+                              if name in cols}
+                continue
+
+            if header_idx and all(k in header_idx for k in ("LADDR", "LPORT", "RADDR", "RPORT")):
+                cols = stripped.split()
+                if len(cols) > max(header_idx.values()):
+                    lip = cols[header_idx["LADDR"]]
+                    lport = cols[header_idx["LPORT"]]
+                    rip = cols[header_idx["RADDR"]]
+                    rport = cols[header_idx["RPORT"]]
+                    if re.fullmatch(r"\d+\.\d+\.\d+\.\d+", lip):
+                        local_ips.add(lip)
+                    if re.fullmatch(r"\d+\.\d+\.\d+\.\d+", rip):
+                        remote_ips.add(rip)
+                    if lport.isdigit():
+                        local_ports.add(lport)
+                    if rport.isdigit():
+                        remote_ports.add(rport)
+
+                    if "->" in cols:
+                        i = cols.index("->")
+                        if i > 0 and i + 1 < len(cols):
+                            transitions.append(f"{cols[i-1]} {cols[i+1]}")
+                continue
+
+            # Compatibility fallback for older/raw TCP output with endpoint pairs.
+            endpoints = re.findall(r"(\d+\.\d+\.\d+\.\d+):(\d+)", stripped)
+            if len(endpoints) >= 2:
+                local_ips.add(endpoints[0][0])
+                local_ports.add(endpoints[0][1])
+                remote_ips.add(endpoints[1][0])
+                remote_ports.add(endpoints[1][1])
+
+            states = re.findall(
+                r"\b(SYN_SENT|ESTABLISHED|CLOSE|FIN_WAIT1|FIN_WAIT2|"
+                r"LAST_ACK|CLOSE_WAIT|CLOSING|LISTEN|SYN_RECV|TIME_WAIT)\b",
+                stripped,
+            )
+            if len(states) >= 2:
+                transitions.append(f"{states[0]} {states[1]}")
+            elif states:
+                transitions.append(states[0])
+
+    return {
+        "Local_IPs_Access": len(local_ips),
+        "Remote_IPs_Access": len(remote_ips),
+        "Local_Port_Access": len(local_ports),
+        "Remote_Port_Access": len(remote_ports),
+        "State_Transition": " ".join(_ordered_unique(transitions)),
+    }
+
+
+def _normalise_dep_name(value: str) -> str:
+    value = value.strip().strip(";,")
+    value = re.split(r"[<>=!~;\[\]]", value, maxsplit=1)[0]
+    value = re.sub(r"[-_.]+", "-", value).lower()
+    return value
+
+
+def _installation_features(root: Path, package_name: str) -> dict:
+    files = _files(root, TRACE_DIRS["installation"], "*")
+    if not files:
+        raise ValueError("Missing QUT-DV25_Installation_Traces evidence.")
+
+    text = "\n".join(_read(p) for p in files)
+    deps: list[str] = []
+    direct: list[str] = []
+
+    # pip's verbose dependency lines distinguish direct dependencies from
+    # transitive ones through the "(from A->B)" chain.
+    collecting_re = re.compile(
+        r"Collecting\s+([A-Za-z0-9][A-Za-z0-9_.-]*(?:\s*[<>=!~].*?)?)"
+        r"(?:\s+\(|\s*$)",
+        re.I,
+    )
+    for m in collecting_re.finditer(text):
+        name = _normalise_dep_name(m.group(1))
+        if name:
+            deps.append(name)
+
+    root_norm = _normalise_dep_name(package_name)
+    for line in text.splitlines():
+        if "Collecting " not in line:
+            continue
+        m = collecting_re.search(line)
+        if not m:
+            continue
+        name = _normalise_dep_name(m.group(1))
+        if not name:
+            continue
+        if "(from " in line:
+            origin = line.split("(from ", 1)[1].split(")", 1)[0]
+            chain = [_normalise_dep_name(x) for x in origin.split("->")]
+            chain = [x for x in chain if x]
+            if root_norm in chain and len(chain) == 1:
+                direct.append(name)
+            elif root_norm in chain and len(chain) >= 2:
+                # e.g. "requests->requeksts"
+                if chain[-1] == root_norm and len(chain) == 2:
+                    direct.append(name)
+        else:
+            # A top-level "Collecting X" is usually a direct requirement
+            # when pip did not print an origin clause.
+            direct.append(name)
+
+    deps = _ordered_unique(deps)
+    direct = _ordered_unique(direct)
+    indirect = [d for d in deps if d not in set(direct)]
+
+    return {
+        "Total_Dependencies": len(deps),
+        "Direct_Dependencies": len(direct),
+        "Indirect_Dependencies": len(indirect),
+        "Total_Dependencies_List": " ".join(deps),
+        "Direct_Dependencies_List": " ".join(direct),
+        "Indirect_Dependencies_List": " ".join(indirect),
+    }
+
+
+def _filetop_features(root: Path) -> dict:
+    files = _files(root, TRACE_DIRS["filetop"], "*")
+    if not files:
+        raise ValueError("Missing QUT-DV25_Filetop_Traces evidence.")
+
+    read_processes: list[str] = []
+    write_processes: list[str] = []
+    access_processes: list[str] = []
+    read_kb = 0
+    write_kb = 0
+
+    # BCC filetop format:
+    # TID COMM READS WRITES R_Kb W_Kb T FILE
+    row_re = re.compile(
+        r"^\s*\d+\s+(\S+)\s+(\d+)\s+(\d+)\s+"
+        r"([0-9.]+)\s+([0-9.]+)\s+\S\s+(.+?)\s*$"
+    )
+
+    for path in files:
+        for line in _read(path).splitlines():
+            m = row_re.match(line)
+            if not m:
+                continue
+            comm, reads, writes, rkb, wkb, _file = m.groups()
+            reads_i = int(reads)
+            writes_i = int(writes)
+            if reads_i > 0:
+                read_processes.append(comm)
+            if writes_i > 0:
+                write_processes.append(comm)
+            access_processes.append(comm)
+            read_kb += int(float(rkb))
+            write_kb += int(float(wkb))
+
+    return {
+        "Read_Processes": " ".join(_ordered_unique(read_processes)),
+        "Write_Processes": " ".join(_ordered_unique(write_processes)),
+        "Read_Data_Transfer": str(read_kb),
+        "Write_Data_Transfer": str(write_kb),
+        "File_Access_Processes": " ".join(_ordered_unique(access_processes)),
+    }
+
+
+def _syscall_features(root: Path, events: list[str]) -> dict:
+    if not events:
+        raise ValueError("No parseable syscall events found in QUT-DV25 Pattern/SystemCall traces.")
+
+    result = {}
+    for column, group in SYSCALL_GROUPS.items():
+        result[column] = " ".join(_ordered_unique(e for e in events if e in group))
+    return result
+
+
+def _find_pattern(tokens: list[str], pattern: tuple[str, ...]) -> bool:
+    n = len(pattern)
+    if n > len(tokens):
+        return False
+    for i in range(len(tokens) - n + 1):
+        if tuple(tokens[i:i+n]) == pattern:
+            return True
+    return False
+
+
+def _pattern_features(root: Path, events_by_file: dict[Path, list[str]]) -> dict:
+    # Prefer an explicit processed pattern log if one exists, but never invent
+    # values. Otherwise derive the ten documented signatures from strace.
+    explicit = _files(root, TRACE_DIRS["pattern"], "*.log")
+    explicit = [p for p in explicit if not p.name.startswith("strace_output_")]
+
+    result = {name: "" for name in PATTERN_DEFS}
+
+    if explicit:
+        text = "\n".join(_read(p).lower() for p in explicit)
+        for name, seq in PATTERN_DEFS.items():
+            if "->".join(seq) in text or " ".join(seq) in text:
+                result[name] = " ".join(seq)
+        # Even an explicit pattern file can be empty for individual patterns.
+        return result
+
+    for name, seq in PATTERN_DEFS.items():
+        for tokens in events_by_file.values():
+            if _find_pattern(tokens, seq):
+                result[name] = " ".join(seq)
+                break
+
+    # Error-sensitive enrichment for Pattern_10.
+    if not result["Pattern_10"]:
+        for path, tokens in events_by_file.items():
+            if "open" in tokens and "read" in tokens:
+                text = _read(path)
+                if "ENOENT" in text:
+                    result["Pattern_10"] = "open read error=ENOENT no-fd"
+                    break
+
+    return result
 
 
 class DySecFeatureExtractor:
     def __init__(self, schema_path: str = "models/rf/Combined_schema.json"):
-        """
-        Initializes the extractor with the expected feature schema.
-        """
-        self.schema_path = schema_path
-        if os.path.exists(schema_path):
-            with open(schema_path, "r", encoding="utf-8") as f:
-                self.schema = json.load(f)
-            self.numeric_columns = self.schema.get("numeric_columns", [])
-            self.categorical_columns = self.schema.get("categorical_columns", [])
-        else:
-            self.schema = {}
-            self.numeric_columns = []
-            self.categorical_columns = []
+        self.schema_path = Path(schema_path)
+        if not self.schema_path.is_file():
+            raise FileNotFoundError(f"Schema not found: {self.schema_path}")
 
-    def extract(self, trace_dir: str, package_name: str = "sample_pkg") -> pd.DataFrame:
-        """
-        Parses raw trace log files from the trace directory and outputs a single-row DataFrame
-        containing all 39 features defined in Combined_schema.json.
+        self.schema = json.loads(self.schema_path.read_text(encoding="utf-8"))
+        self.numeric_columns = list(self.schema["numeric_columns"])
+        self.categorical_columns = list(self.schema["categorical_columns"])
+        self.expected_columns = self.numeric_columns + self.categorical_columns
 
-        Parameters:
-            trace_dir (str): Directory where raw trace logs are located.
-            package_name (str): The name/prefix identifier of the package.
+        if len(self.expected_columns) != 39:
+            raise ValueError(
+                f"Tanzir bundle schema must expose 39 raw features; got "
+                f"{len(self.expected_columns)}."
+            )
 
-        Returns:
-            pd.DataFrame: A DataFrame with shape (1, 40) including Package_Name and 39 features.
-        """
-        features: Dict[str, Any] = {"Package_Name": package_name}
+    def extract(self, trace_dir: str, package_name: str) -> pd.DataFrame:
+        root = Path(trace_dir)
+        if not root.is_dir():
+            raise FileNotFoundError(f"Trace directory not found: {root}")
 
-        # ---------------------------------------------------------------------
-        # 1. OPENSNOOP TRACES (7 Numeric Directory Access Features)
-        # ---------------------------------------------------------------------
-        opensnoop_log = os.path.join(trace_dir, f"{package_name}_opens.log")
-        root_cnt, temp_cnt, home_cnt, usr_cnt, sys_cnt, etc_cnt, other_cnt = 0, 0, 0, 0, 0, 0, 0
+        events, _errors, raw_lines = _syscall_events(root)
+        strace_files = _strace_files(root)
+        if not strace_files:
+            raise ValueError("No canonical strace_output_* files found.")
 
-        if os.path.exists(opensnoop_log):
-            with open(opensnoop_log, "r", errors="ignore") as f:
-                for line in f:
-                    if "/root" in line:
-                        root_cnt += 1
-                    elif "/tmp" in line:
-                        temp_cnt += 1
-                    elif "/home" in line:
-                        home_cnt += 1
-                    elif "/usr" in line:
-                        usr_cnt += 1
-                    elif "/sys" in line:
-                        sys_cnt += 1
-                    elif "/etc" in line:
-                        etc_cnt += 1
-                    elif any(path in line for path in ["/proc", "/dev", "/var", "/opt"]):
-                        other_cnt += 1
+        events_by_file: dict[Path, list[str]] = {}
+        for path in strace_files:
+            tokens = []
+            for line in _read(path).splitlines():
+                syscall, _ = _parse_strace_line(line)
+                if syscall:
+                    tokens.append(syscall)
+            events_by_file[path] = tokens
 
-        features["Root_DIR_Access"] = root_cnt
-        features["Temp_DIR_Access"] = temp_cnt
-        features["Home_DIR_Access"] = home_cnt
-        features["User_DIR_Access"] = usr_cnt
-        features["Sys_DIR_Access"] = sys_cnt
-        features["Etc_DIR_Access"] = etc_cnt
-        features["Other_DIR_Access"] = other_cnt
+        features = {"Package_Name": package_name}
+        features.update(_opensnoop_features(root))
+        features.update(_tcp_features(root))
+        features.update(_installation_features(root, package_name))
+        features.update(_filetop_features(root))
+        features.update(_syscall_features(root, events))
+        features.update(_pattern_features(root, events_by_file))
 
-        # ---------------------------------------------------------------------
-        # 2. TCP TRACES (4 Numeric + 1 Categorical Feature)
-        # ---------------------------------------------------------------------
-        tcp_log = os.path.join(trace_dir, f"{package_name}_tcps.log")
-        local_ips, remote_ips = set(), set()
-        local_ports, remote_ports = set(), set()
-        tcp_transitions = []
+        missing = [c for c in self.expected_columns if c not in features]
+        if missing:
+            raise ValueError(f"Extractor failed to create features: {missing}")
 
-        valid_tcp_states = [
-            "SYN_SENT", "ESTABLISHED", "CLOSE", "FIN_WAIT1", 
-            "FIN_WAIT2", "LAST_ACK", "CLOSE_WAIT", "CLOSING"
-        ]
+        # The model bundle expects numeric fields to be numeric and categorical
+        # fields to be text. Empty categorical values are intentional absence,
+        # not the literal token "None".
+        row = {"Package_Name": package_name}
+        for col in self.numeric_columns:
+            row[col] = float(features[col])
+        for col in self.categorical_columns:
+            value = features[col]
+            row[col] = "" if value is None else str(value)
 
-        if os.path.exists(tcp_log):
-            with open(tcp_log, "r", errors="ignore") as f:
-                for line in f:
-                    endpoints = re.findall(r"(\d+\.\d+\.\d+\.\d+):(\d+)", line)
-                    if len(endpoints) >= 2:
-                        local_ips.add(endpoints[0][0])
-                        local_ports.add(endpoints[0][1])
-                        remote_ips.add(endpoints[1][0])
-                        remote_ports.add(endpoints[1][1])
-                    for state in valid_tcp_states:
-                        if state in line:
-                            tcp_transitions.append(state.lower())
-
-        features["Local_IPs_Access"] = len(local_ips)
-        features["Remote_IPs_Access"] = len(remote_ips)
-        features["Local_Port_Access"] = len(local_ports)
-        features["Remote_Port_Access"] = len(remote_ports)
-        features["State_Transition"] = " ".join(tcp_transitions) if tcp_transitions else "close established"
-
-        # ---------------------------------------------------------------------
-        # 3. INSTALL TRACES (3 Numeric + 3 Categorical Features)
-        # ---------------------------------------------------------------------
-        inst_log = os.path.join(trace_dir, f"{package_name}_inst.log")
-        direct_deps, all_deps = [], []
-
-        if os.path.exists(inst_log):
-            with open(inst_log, "r", errors="ignore") as f:
-                content = f.read()
-                collected = re.findall(r"Collecting\s+([a-zA-Z0-9_\-\.]+)", content)
-                direct_deps = list(dict.fromkeys(collected[:3])) if collected else []
-                all_deps = list(dict.fromkeys(collected))
-
-        features["Direct_Dependencies"] = len(direct_deps)
-        features["Total_Dependencies"] = len(all_deps)
-        features["Indirect_Dependencies"] = max(0, len(all_deps) - len(direct_deps))
-        features["Total_Dependencies_List"] = " ".join(all_deps) if all_deps else "none"
-        features["Direct_Dependencies_List"] = " ".join(direct_deps) if direct_deps else "none"
-        features["Indirect_Dependencies_List"] = (
-            " ".join(set(all_deps) - set(direct_deps)) if all_deps else "none"
-        )
-
-        # ---------------------------------------------------------------------
-        # 4. FILETOP TRACES (5 Categorical Process/Transfer Features)
-        # ---------------------------------------------------------------------
-        filetop_log = os.path.join(trace_dir, f"{package_name}_filetop.log")
-        read_procs, write_procs, read_trans, write_trans, file_procs = [], [], [], [], []
-
-        if os.path.exists(filetop_log):
-            with open(filetop_log, "r", errors="ignore") as f:
-                for line in f:
-                    parts = line.strip().split()
-                    if len(parts) >= 6:
-                        proc = parts[1].lower()
-                        if "R" in parts:
-                            read_procs.append(proc)
-                            read_trans.append(parts[-1])
-                        if "W" in parts:
-                            write_procs.append(proc)
-                            write_trans.append(parts[-1])
-                        file_procs.append(proc)
-
-        features["Read_Processes"] = " ".join(set(read_procs)) if read_procs else "pip python"
-        features["Write_Processes"] = " ".join(set(write_procs)) if write_procs else "pip python"
-        features["Read_Data_Transfer"] = " ".join(read_trans[:15]) if read_trans else "transfer"
-        features["Write_Data_Transfer"] = " ".join(write_trans[:15]) if write_trans else "transfer"
-        features["File_Access_Processes"] = " ".join(set(file_procs)) if file_procs else "pip python"
-
-        # ---------------------------------------------------------------------
-        # 5. SYSCALL TRACES (6 Categorical Operation Groups)
-        # ---------------------------------------------------------------------
-        syscall_log = os.path.join(trace_dir, f"{package_name}_syscall.log")
-        io_ops, file_ops, net_ops, time_ops, sec_ops, proc_ops = [], [], [], [], [], []
-
-        if os.path.exists(syscall_log):
-            with open(syscall_log, "r", errors="ignore") as f:
-                for line in f:
-                    call = line.strip().split()[0].lower() if line.strip() else ""
-                    if call in ["ioctl", "poll", "readv", "writev", "lseek", "fcntl"]:
-                        io_ops.append(call)
-                    elif call in ["open", "openat", "read", "write", "close", "newfstatat", "fstat", "getdents64"]:
-                        file_ops.append(call)
-                    elif call in ["socket", "connect", "accept", "bind", "listen", "sendto", "recvfrom"]:
-                        net_ops.append(call)
-                    elif call in ["clock_gettime", "time", "timer_create", "alarm", "nanosleep"]:
-                        time_ops.append(call)
-                    elif call in ["getuid", "setuid", "geteuid", "getgid", "chmod", "capset"]:
-                        sec_ops.append(call)
-                    elif call in ["clone", "fork", "vfork", "execve", "wait4", "exit", "kill"]:
-                        proc_ops.append(call)
-
-        features["IO_Operations"] = " ".join(io_ops) if io_ops else "ioctl lseek poll"
-        features["File_Operations"] = " ".join(file_ops) if file_ops else "newfstatat openat fstat read write close"
-        features["Network_Operations"] = " ".join(net_ops) if net_ops else "socket connect"
-        features["Time_Operations"] = " ".join(time_ops) if time_ops else "clock_gettime time"
-        features["Security_Operations"] = " ".join(sec_ops) if sec_ops else "getuid geteuid"
-        features["Process_Operations"] = " ".join(proc_ops) if proc_ops else "clone execve wait4 exit"
-
-        # ---------------------------------------------------------------------
-        # 6. PATTERN TRACES (10 Categorical Behavioral Sequences)
-        # ---------------------------------------------------------------------
-        pattern_defaults = {
-            "Pattern_1": "newfstatat openat fstat lseek ioctl",
-            "Pattern_2": "read read read newfstatat",
-            "Pattern_3": "write pwrite64 fsync",
-            "Pattern_4": "socket bind listen accept execve",
-            "Pattern_5": "ioctl setresuid setresgid execve",
-            "Pattern_6": "openat mmap ioctl prctl no_fd",
-            "Pattern_7": "fcntl fcntl close no_error fd_1",
-            "Pattern_8": "pipe write read no_error",
-            "Pattern_9": "openat fstat fcntl no_fd",
-            "Pattern_10": "newfstatat openat fstat error_enoent",
-        }
-
-        pattern_log = os.path.join(trace_dir, f"{package_name}_pattern.log")
-        if os.path.exists(pattern_log):
-            with open(pattern_log, "r", errors="ignore") as f:
-                for line in f:
-                    for i in range(1, 11):
-                        p_name = f"Pattern_{i}"
-                        if p_name in line:
-                            clean_seq = (
-                                line.replace(f"{p_name}:", "")
-                                .replace("->", " ")
-                                .replace("=", "_")
-                                .strip()
-                            )
-                            features[p_name] = clean_seq
-
-        for p_name, default_seq in pattern_defaults.items():
-            if p_name not in features:
-                features[p_name] = default_seq
-
-        df = pd.DataFrame([features])
-
-        # Enforce column order if schema was loaded
-        if self.numeric_columns and self.categorical_columns:
-            ordered_cols = ["Package_Name"] + self.numeric_columns + self.categorical_columns
-            df = df.reindex(columns=ordered_cols)
-
+        df = pd.DataFrame([row], columns=["Package_Name"] + self.expected_columns)
+        df.attrs["raw_strace_lines"] = raw_lines
+        df.attrs["parsed_syscalls"] = len(events)
+        df.attrs["strace_files"] = len(strace_files)
         return df

@@ -1,299 +1,150 @@
 from __future__ import annotations
 
-"""
-Prompt construction for progressive, behavior-preserving
-Python source transformation.
+from typing import Any
 
-The transformation becomes progressively more substantial
-over five rounds while preserving the externally observable
-behaviour of the original program.
-"""
-
-from typing import Optional
+from pipeline.mutation_planner import (
+    COMPLEXITY_LEVELS,
+    get_complexity_level,
+)
 
 
-COMPLEXITY_LEVELS = {
-    1: {
-        "name": "Light Refactoring",
-        "instructions": """
-Apply relatively light source-level refactoring.
+def _format_plan(
+    mutation_plan: dict[str, Any],
+) -> str:
+    operations = mutation_plan.get("operations", [])
+    targets = mutation_plan.get("target_functions", [])
+    level = mutation_plan.get("level", 1)
 
-Allowed transformations include:
-- Rename local variables where safe.
-- Extract small helper functions.
-- Simplify or reorganise expressions.
-- Improve local code organisation.
-- Replace equivalent Python constructs.
+    lines = [
+        f"Mutation level: {level}",
+        "Target functions:",
+    ]
 
-Do not substantially redesign the program architecture.
-The resulting implementation should remain recognisably
-similar to the original implementation.
-""",
-    },
+    if targets:
+        lines.extend(
+            f"- {name}"
+            for name in targets
+        )
+    else:
+        lines.append("- Use only the selected target.")
 
-    2: {
-        "name": "Structural Refactoring",
-        "instructions": """
-Apply a moderate structural refactoring.
+    lines.append("")
+    lines.append("Allowed operations:")
 
-In addition to the previous level:
-- Split larger functions into multiple cohesive helpers.
-- Merge trivial helper functions where appropriate.
-- Reorganise related operations into logical components.
-- Change data-flow between internal helper functions.
-- Introduce lightweight abstractions where they improve structure.
-- Change the organisation of classes, functions, or internal
-  data structures when behaviour remains equivalent.
+    if operations:
+        lines.extend(
+            f"- {operation}"
+            for operation in operations
+        )
+    else:
+        lines.append(
+            "- No predefined operation; perform only "
+            "a minimal behaviour-preserving refactoring."
+        )
 
-Avoid superficial changes such as comments or meaningless
-renaming as the primary transformation.
-""",
-    },
-
-    3: {
-        "name": "Control-Flow Refactoring",
-        "instructions": """
-Perform a substantial control-flow refactoring.
-
-In addition to the previous levels:
-- Restructure conditional logic while preserving semantics.
-- Replace equivalent control-flow patterns where appropriate.
-- Introduce or remove intermediate helper functions.
-- Change the order of independent internal computations when
-  this is demonstrably behaviour-preserving.
-- Introduce clearer intermediate states or dispatch logic.
-- Move logic between functions when the observable behaviour
-  remains unchanged.
-
-The generated implementation should be meaningfully different
-from the input rather than being a collection of cosmetic edits.
-""",
-    },
-
-    4: {
-        "name": "Implementation Redesign",
-        "instructions": """
-Perform a major internal implementation redesign.
-
-The implementation should differ substantially from the
-original source structure.
-
-Consider:
-- Alternative internal algorithms with equivalent results.
-- Different data representations.
-- Different decomposition of responsibilities.
-- Multiple layers of helper functions.
-- Alternative but equivalent Python mechanisms.
-- Reorganisation of the execution flow.
-- Moving responsibilities between components.
-
-Preserve all required externally observable behaviour.
-Do not introduce unnecessary functionality unrelated to the
-original program.
-""",
-    },
-
-    5: {
-        "name": "High-Complexity Redesign",
-        "instructions": """
-Perform the strongest behavior-preserving transformation in
-this experiment.
-
-Produce a substantially redesigned implementation rather
-than a cosmetic refactor.
-
-The generated implementation may use:
-- A significantly different internal architecture.
-- Multiple layers of abstraction.
-- Alternative data representations.
-- Different control-flow organisation.
-- Additional cohesive helper functions.
-- Alternative equivalent implementation techniques.
-- More distributed internal responsibilities.
-
-The transformation should result in a genuinely different
-implementation while preserving the original externally
-observable behaviour.
-
-Do not add meaningless dead code merely to increase line count.
-Additional code should have a legitimate role in the
-implementation.
-""",
-    },
-}
-
-
-def _get_complexity_level(round_number: Optional[int]) -> dict:
-    """Return the progressive transformation level for a round."""
-    if round_number is None:
-        round_number = 1
-
-    try:
-        round_number = int(round_number)
-    except (TypeError, ValueError):
-        round_number = 1
-
-    round_number = max(1, min(round_number, 5))
-
-    return COMPLEXITY_LEVELS[round_number]
+    return "\n".join(lines)
 
 
 def build_prompt(
-    strategy: dict,
     relative_path: str,
     source_code: str,
-    round_number: int = 1,
-    previous_verdict: str | None = None,
-    feedback_history: list[dict] | None = None,
+    round_number: int,
+    mutation_plan: dict[str, Any],
+    feedback_history: list[dict[str, Any]] | None = None,
 ) -> str:
-    """
-    Build a progressive behavior-preserving transformation prompt.
+    level = get_complexity_level(round_number)
+    level_info = COMPLEXITY_LEVELS[level]
 
-    Args:
-        strategy:
-            Strategy definition from config/strategies.py.
+    history = feedback_history or []
 
-        relative_path:
-            Relative path of the target Python source file.
+    previous_text = ""
 
-        source_code:
-            Current source code to transform.
+    if history:
+        previous_text = (
+            "\nPrevious valid transformations performed "
+            "on this evolving variant:\n"
+        )
 
-        round_number:
-            Current transformation round (1-5).
-
-        previous_verdict:
-            Result of the previous DySec evaluation, if available.
-
-        feedback_history:
-            Previous round results within the current strategy.
-
-    Returns:
-        A complete prompt for the LLM.
-    """
-
-    if not source_code.strip():
-        raise ValueError("Source code cannot be empty.")
-
-    description = strategy.get("description", "").strip()
-
-    if not description:
-        raise ValueError("Strategy description cannot be empty.")
-
-    level = _get_complexity_level(round_number)
-
-    feedback_section = ""
-
-    if previous_verdict:
-        feedback_section = f"""
-PREVIOUS EVALUATION
--------------------
-The previous generated implementation received the following
-evaluation result:
-
-{previous_verdict}
-
-Generate a new implementation rather than simply repeating
-the previous transformation.
-
-The new version should make a meaningful additional change
-consistent with the current transformation level.
-""".strip()
-
-    history_section = ""
-
-    if feedback_history:
-        history_lines = []
-
-        for item in feedback_history:
-            round_id = item.get("round", "?")
-            verdict = item.get("verdict", "UNKNOWN")
-
-            history_lines.append(
-                f"- Round {round_id}: {verdict}"
+        for item in history[-5:]:
+            previous_text += (
+                f"- Round {item.get('round')}: "
+                f"{item.get('operations', [])}\n"
             )
 
-        history_section = f"""
-PREVIOUS ROUND HISTORY
-----------------------
-{chr(10).join(history_lines)}
-""".strip()
+    plan_text = _format_plan(mutation_plan)
 
     return f"""
-You are an automated Python source-code transformation
-system for academic software robustness evaluation.
+You are performing a controlled source-level refactoring
+experiment on a Python package.
 
-Your task is to transform ONLY the supplied Python source
-file according to the specified transformation strategy and
-progressive complexity level.
+This is mutation round {round_number} of a progressive
+15-round experiment.
 
-The most important requirement is preservation of the
-original externally observable behaviour.
+REFACTORING LEVEL:
+{level} ({level_info["name"]})
 
-TRANSFORMATION STRATEGY
------------------------
-{description}
+{level_info["instruction"]}
 
-PROGRESSIVE COMPLEXITY LEVEL
-----------------------------
-Round: {round_number}
-Level: {level["name"]}
-
-{level["instructions"].strip()}
-
-TARGET FILE
------------
+TARGET FILE:
 {relative_path}
 
-BEHAVIOUR PRESERVATION
-----------------------
-The transformed implementation must preserve the original
-program's required externally observable behaviour.
+MUTATION PLAN:
+{plan_text}
 
-In particular:
-
-1. Preserve the program's intended functionality.
-2. Preserve required inputs and outputs.
-3. Preserve relevant return values.
-4. Preserve required exceptions and error behaviour.
-5. Preserve required file, network, process, and system
-   interactions when they are part of the original behaviour.
-6. Do not remove required functionality.
-7. Do not introduce unrelated functionality.
-8. Do not intentionally alter behaviour merely to make the
-   source code appear different.
-9. Do not use meaningless dead code solely to increase the
-   number of lines.
-10. Keep the resulting file valid, executable Python.
-
-PROGRESSIVE TRANSFORMATION
---------------------------
-This is round {round_number} of a progressive transformation.
-
-The implementation should be more substantially transformed
-than an earlier round when possible.
-
-However, complexity alone is not the objective. Every
-additional abstraction, helper, restructuring, or
-implementation change should have a legitimate role in
-implementing the original functionality.
-
-{feedback_section}
-
-{history_section}
-
-OUTPUT REQUIREMENTS
--------------------
-Return ONLY the complete transformed Python source code.
-
-Do not return:
-- Markdown code fences.
-- Explanations.
-- Comments outside the Python source.
-- Analysis of the transformation.
-- Any text before or after the Python source.
-
-SOURCE CODE
------------
+SOURCE CODE:
+```python
 {source_code}
+PRIMARY OBJECTIVE:
+
+Create a behaviour-preserving internal refactoring of the
+supplied source code.
+
+The generated source must remain close to the original source
+while implementing the specified mutation plan.
+
+STRICT SCOPE:
+
+Modify ONLY the supplied Python source file.
+
+Do NOT modify package metadata.
+Do NOT add package dependencies.
+Do NOT introduce external libraries.
+Do NOT change public APIs.
+Do NOT change function signatures.
+Preserve return values.
+Preserve exceptions and observable behaviour.
+Preserve side effects.
+Preserve global state semantics.
+Preserve module-level behaviour.
+Do not add new functionality.
+Do not remove functionality.
+Do not modify unrelated functions.
+
+SOURCE PRESERVATION:
+
+Do NOT rewrite the whole file.
+Do NOT regenerate the source from scratch.
+Do NOT make broad stylistic changes.
+Do NOT rename variables throughout the file.
+Do NOT reformat unrelated code.
+Do NOT change comments unless necessary.
+
+Only change the smallest coherent region required.
+
+SEMANTIC REQUIREMENT:
+
+The package must behave equivalently for its existing inputs.
+
+Do not inspect or target detector internals.
+Do not optimize for a particular detector prediction.
+
+OUTPUT FORMAT:
+
+Return ONLY the complete Python source file.
+
+Do NOT use markdown fences.
+Do NOT provide explanations.
+Do NOT provide analysis.
+
+{previous_text}
 """.strip()

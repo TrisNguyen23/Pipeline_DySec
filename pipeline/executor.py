@@ -11,12 +11,42 @@ from config.settings import (
 )
 
 
+def _result(
+    *,
+    success: bool,
+    return_code: int | None,
+    stdout: str,
+    stderr: str,
+    duration: float,
+    timed_out: bool,
+    command: list[str],
+    package_root: Path,
+    environment_directory: Path,
+) -> dict:
+    return {
+        "success": success,
+        "return_code": return_code,
+        "stdout": stdout,
+        "stderr": stderr,
+        "duration": duration,
+        "timed_out": timed_out,
+        "command": command,
+        "package_root": str(package_root),
+        "environment_directory": str(
+            environment_directory
+        ),
+    }
+
+
 def execute_package(
     package_root: Path,
     environment_directory: Path,
     timeout: int = SANDBOX_TIMEOUT,
 ) -> dict:
-    package_root = Path(package_root).resolve()
+    package_root = Path(
+        package_root
+    ).resolve()
+
     environment_directory = Path(
         environment_directory
     ).resolve()
@@ -33,10 +63,11 @@ def execute_package(
     )
 
     venv_python = (
-        environment_directory / "bin" / "python"
+        environment_directory
+        / "bin"
+        / "python"
     )
 
-    # Create an isolated virtual environment.
     if not venv_python.exists():
         create_command = [
             PYTHON_EXECUTABLE,
@@ -45,6 +76,8 @@ def execute_package(
             "--system-site-packages",
             str(environment_directory),
         ]
+
+        start = time.monotonic()
 
         try:
             created = subprocess.run(
@@ -55,84 +88,40 @@ def execute_package(
                 check=False,
             )
         except subprocess.TimeoutExpired as exc:
-            return {
-                "success": False,
-                "return_code": None,
-                "stdout": exc.stdout or "",
-                "stderr": exc.stderr or "",
-                "duration": 0.0,
-                "timed_out": True,
-                "command": create_command,
-                "package_root": str(package_root),
-                "environment_directory": str(
+            return _result(
+                success=False,
+                return_code=None,
+                stdout=exc.stdout or "",
+                stderr=exc.stderr or "",
+                duration=(
+                    time.monotonic()
+                    - start
+                ),
+                timed_out=True,
+                command=create_command,
+                package_root=package_root,
+                environment_directory=(
                     environment_directory
                 ),
-            }
+            )
 
         if created.returncode != 0:
-            return {
-                "success": False,
-                "return_code": created.returncode,
-                "stdout": created.stdout,
-                "stderr": created.stderr,
-                "duration": 0.0,
-                "timed_out": False,
-                "command": create_command,
-                "package_root": str(package_root),
-                "environment_directory": str(
+            return _result(
+                success=False,
+                return_code=created.returncode,
+                stdout=created.stdout,
+                stderr=created.stderr,
+                duration=(
+                    time.monotonic()
+                    - start
+                ),
+                timed_out=False,
+                command=create_command,
+                package_root=package_root,
+                environment_directory=(
                     environment_directory
                 ),
-            }
-
-    # Ensure the build backend is available.
-    build_tools_command = [
-        str(venv_python),
-        "-m",
-        "pip",
-        "install",
-        "--upgrade",
-        "setuptools",
-        "wheel",
-    ]
-
-    try:
-        build_tools = subprocess.run(
-            build_tools_command,
-            cwd=str(package_root),
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            check=False,
-        )
-    except subprocess.TimeoutExpired as exc:
-        return {
-            "success": False,
-            "return_code": None,
-            "stdout": exc.stdout or "",
-            "stderr": exc.stderr or "",
-            "duration": 0.0,
-            "timed_out": True,
-            "command": build_tools_command,
-            "package_root": str(package_root),
-            "environment_directory": str(
-                environment_directory
-            ),
-        }
-
-    if build_tools.returncode != 0:
-        return {
-            "success": False,
-            "return_code": build_tools.returncode,
-            "stdout": build_tools.stdout,
-            "stderr": build_tools.stderr,
-            "duration": 0.0,
-            "timed_out": False,
-            "command": build_tools_command,
-            "package_root": str(package_root),
-            "environment_directory": str(
-                environment_directory
-            ),
-        }
+            )
 
     pip_command = [
         str(venv_python),
@@ -146,7 +135,7 @@ def execute_package(
 
     environment = os.environ.copy()
 
-    start_time = time.monotonic()
+    start = time.monotonic()
 
     try:
         completed = subprocess.run(
@@ -159,41 +148,41 @@ def execute_package(
             check=False,
         )
 
-        duration = (
-            time.monotonic()
-            - start_time
-        )
-
-        return {
-            "success": (
+        return _result(
+            success=(
                 completed.returncode == 0
             ),
-            "return_code": completed.returncode,
-            "stdout": completed.stdout,
-            "stderr": completed.stderr,
-            "duration": duration,
-            "timed_out": False,
-            "command": pip_command,
-            "package_root": str(package_root),
-            "environment_directory": str(
+            return_code=(
+                completed.returncode
+            ),
+            stdout=completed.stdout,
+            stderr=completed.stderr,
+            duration=(
+                time.monotonic()
+                - start
+            ),
+            timed_out=False,
+            command=pip_command,
+            package_root=package_root,
+            environment_directory=(
                 environment_directory
             ),
-        }
+        )
 
     except subprocess.TimeoutExpired as exc:
-        return {
-            "success": False,
-            "return_code": None,
-            "stdout": exc.stdout or "",
-            "stderr": exc.stderr or "",
-            "duration": (
+        return _result(
+            success=False,
+            return_code=None,
+            stdout=exc.stdout or "",
+            stderr=exc.stderr or "",
+            duration=(
                 time.monotonic()
-                - start_time
+                - start
             ),
-            "timed_out": True,
-            "command": pip_command,
-            "package_root": str(package_root),
-            "environment_directory": str(
+            timed_out=True,
+            command=pip_command,
+            package_root=package_root,
+            environment_directory=(
                 environment_directory
             ),
-        }
+        )

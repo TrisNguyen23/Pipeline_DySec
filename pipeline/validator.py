@@ -9,6 +9,7 @@ from pipeline.executor import execute_package
 def validate_behavior(
     original_package: Path,
     generated_package: Path,
+    environment_root: Path | None = None,
 ) -> dict:
     original_package = Path(
         original_package
@@ -21,44 +22,55 @@ def validate_behavior(
     if not original_package.exists():
         return {
             "preserved": False,
-            "method": "package_installation",
-            "checks": {},
-            "original": None,
-            "generated": None,
             "error": (
-                "Original package does not exist."
+                f"Original package missing: "
+                f"{original_package}"
             ),
         }
 
     if not generated_package.exists():
         return {
             "preserved": False,
-            "method": "package_installation",
-            "checks": {},
-            "original": None,
-            "generated": None,
             "error": (
-                "Generated package does not exist."
+                f"Generated package missing: "
+                f"{generated_package}"
             ),
         }
 
+    if environment_root is None:
+        environment_root = (
+            generated_package.parent
+            / ".validation_environments"
+        )
+
+    environment_root = Path(
+        environment_root
+    ).resolve()
+
+    environment_root.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
     original_env = (
-        original_package / ".validation_env"
+        environment_root
+        / "original"
     )
 
     generated_env = (
-        generated_package / ".validation_env"
+        environment_root
+        / "generated"
     )
 
     original_result = execute_package(
-        package_root=original_package,
-        environment_directory=original_env,
+        original_package,
+        original_env,
         timeout=VALIDATION_TIMEOUT,
     )
 
     generated_result = execute_package(
-        package_root=generated_package,
-        environment_directory=generated_env,
+        generated_package,
+        generated_env,
         timeout=VALIDATION_TIMEOUT,
     )
 
@@ -90,26 +102,23 @@ def validate_behavior(
         )
     )
 
-    success_equal = (
-        original_success
-        == generated_success
+    original_return = (
+        original_result.get(
+            "return_code"
+        )
+    )
+
+    generated_return = (
+        generated_result.get(
+            "return_code"
+        )
     )
 
     return_code_equal = (
-        original_result.get("return_code")
-        == generated_result.get("return_code")
+        original_return
+        == generated_return
     )
 
-    checks = {
-        "original_completed": original_completed,
-        "generated_completed": generated_completed,
-        "success_equal": success_equal,
-        "return_code_equal": return_code_equal,
-    }
-
-    # Behavior can only be considered preserved
-    # when both packages actually execute/install
-    # successfully and produce the same result.
     preserved = (
         original_completed
         and generated_completed
@@ -121,7 +130,23 @@ def validate_behavior(
     return {
         "preserved": preserved,
         "method": "package_installation",
-        "checks": checks,
+        "checks": {
+            "original_completed": (
+                original_completed
+            ),
+            "generated_completed": (
+                generated_completed
+            ),
+            "original_success": (
+                original_success
+            ),
+            "generated_success": (
+                generated_success
+            ),
+            "return_code_equal": (
+                return_code_equal
+            ),
+        },
         "original": original_result,
         "generated": generated_result,
         "error": None,

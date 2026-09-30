@@ -1,55 +1,68 @@
 from __future__ import annotations
 
+import re
+import time
+from typing import Any
+
 import requests
 
 from config.settings import (
-    OLLAMA_API,
-    MODEL_NAME,
-    TEMPERATURE,
     LLM_TIMEOUT,
+    MODEL_NAME,
+    OLLAMA_API,
+    TEMPERATURE,
 )
 
 
-def _clean_code(
-    response_text: str,
-) -> str:
+def _clean_code(text: str) -> str:
+    text = text.strip()
 
-    code = response_text.strip()
+    python_match = re.search(
+        r"```python\s*(.*?)```",
+        text,
+        flags=re.DOTALL | re.IGNORECASE,
+    )
 
-    if code.startswith("```python"):
-        code = code[len("```python"):].strip()
+    if python_match:
+        return python_match.group(1).strip()
 
-    elif code.startswith("```"):
-        code = code[len("```"):].strip()
+    generic_match = re.search(
+        r"```\s*(.*?)```",
+        text,
+        flags=re.DOTALL,
+    )
 
-    if code.endswith("```"):
-        code = code[:-3].strip()
+    if generic_match:
+        return generic_match.group(1).strip()
 
-    return code
+    return text
+
+
+def _validate_python(
+    code: str,
+) -> None:
+    compile(
+        code,
+        "<generated_variant>",
+        "exec",
+    )
 
 
 def generate_variant(
     prompt: str,
-) -> dict:
-
-    if not prompt.strip():
-        return {
-            "success": False,
-            "code": None,
-            "tokens": {},
-            "response_metadata": {},
-            "error": "Prompt is empty.",
-        }
-
+) -> dict[str, Any]:
     payload = {
         "model": MODEL_NAME,
         "prompt": prompt,
-        "temperature": TEMPERATURE,
         "stream": False,
+        "options": {
+            "temperature": TEMPERATURE,
+        },
     }
 
-    try:
+    start = time.monotonic()
 
+    try:
         response = requests.post(
             OLLAMA_API,
             json=payload,
@@ -58,52 +71,111 @@ def generate_variant(
 
         response.raise_for_status()
 
-        result = response.json()
+        elapsed = (
+            time.monotonic() - start
+        )
 
-        response_text = result.get("response")
+        data = response.json()
 
-        if not isinstance(response_text, str):
-            raise RuntimeError(
-                "Invalid Ollama response: "
-                "missing response text."
-            )
+        raw_response = data.get(
+            "response",
+            "",
+        )
 
         code = _clean_code(
-            response_text
+            raw_response
         )
 
         if not code:
-            raise RuntimeError(
-                "LLM returned empty code."
-            )
+            return {
+                "success": False,
+                "code": None,
+                "tokens": {},
+                "response_metadata": data,
+                "error": (
+                    "Ollama returned empty code."
+                ),
+            }
+
+        try:
+            _validate_python(code)
+        except SyntaxError as exc:
+            return {
+                "success": False,
+                "code": code,
+                "tokens": {},
+                "response_metadata": data,
+                "error": (
+                    "Generated code has invalid "
+                    f"Python syntax: {exc}"
+                ),
+            }
+
+        metadata = {
+            "model": MODEL_NAME,
+            "api": OLLAMA_API,
+            "temperature": TEMPERATURE,
+            "elapsed_seconds": elapsed,
+            "created_at": data.get(
+                "created_at"
+            ),
+            "done": data.get("done"),
+            "done_reason": data.get(
+                "done_reason"
+            ),
+            "total_duration": data.get(
+                "total_duration"
+            ),
+            "load_duration": data.get(
+                "load_duration"
+            ),
+            "prompt_eval_count": data.get(
+                "prompt_eval_count"
+            ),
+            "prompt_eval_duration": data.get(
+                "prompt_eval_duration"
+            ),
+            "eval_count": data.get(
+                "eval_count"
+            ),
+            "eval_duration": data.get(
+                "eval_duration"
+            ),
+            "context": data.get(
+                "context"
+            ),
+        }
 
         tokens = {
-            key: result[key]
-            for key in (
-                "prompt_eval_count",
-                "eval_count",
-                "prompt_eval_duration",
-                "eval_duration",
-                "total_duration",
-                "load_duration",
-            )
-            if key in result
+            "prompt_eval_count": data.get(
+                "prompt_eval_count"
+            ),
+            "eval_count": data.get(
+                "eval_count"
+            ),
         }
 
         return {
             "success": True,
             "code": code,
             "tokens": tokens,
-            "response_metadata": {
-                key: value
-                for key, value in result.items()
-                if key != "response"
-            },
+            "response_metadata": metadata,
             "error": None,
         }
 
-    except requests.RequestException as exc:
+    except requests.Timeout:
+        return {
+            "success": False,
+            "code": None,
+            "tokens": {},
+            "response_metadata": {},
+            "error": (
+                f"Ollama request timed out "
+                f"after {LLM_TIMEOUT}s."
+            ),
+        }
 
+    except requests.RequestException as exc:
         return {
             "success": False,
             "code": None,
@@ -115,11 +187,12 @@ def generate_variant(
         }
 
     except Exception as exc:
-
         return {
             "success": False,
             "code": None,
             "tokens": {},
             "response_metadata": {},
-            "error": str(exc),
+            "error": (
+                f"Generation failed: {exc}"
+            ),
         }
