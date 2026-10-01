@@ -6,6 +6,11 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
+
+# ============================================================
+# Dataset / output
+# ============================================================
+
 PACKAGES_DIR = (
     PROJECT_ROOT / "packages" / "Malicious Packages"
 )
@@ -20,9 +25,10 @@ EVALUATION_DIR = OUTPUT_DIR / "evaluation"
 LOG_DIR = OUTPUT_DIR / "logs"
 RESULTS_DIR = OUTPUT_DIR / "results"
 
-MODEL_PATH = (
-    PROJECT_ROOT / "models" / "RF_best_model_ngrams.pkl"
-)
+
+# ============================================================
+# LLM
+# ============================================================
 
 OLLAMA_API = os.getenv(
     "OLLAMA_API",
@@ -42,10 +48,44 @@ LLM_TIMEOUT = int(
     os.getenv("LLM_TIMEOUT", "500")
 )
 
-# One progressive experiment instead of 3 strategies x 5 rounds.
+
+# ============================================================
+# Experiment
+# ============================================================
+
+EXPERIMENT_NAME = (
+    "dysec_progressive_llm_robustness"
+)
+
 EXPERIMENT_ROUNDS = int(
     os.getenv("EXPERIMENT_ROUNDS", "15")
 )
+
+EXPERIMENT_SEED = int(
+    os.getenv("EXPERIMENT_SEED", "42")
+)
+
+EXPERIMENT_METHODS = (
+    "random",
+    "function_level",
+    "proposed",
+    "proposed_feedback",
+)
+
+PROMPT_VERSION = os.getenv(
+    "PROMPT_VERSION",
+    "v2",
+)
+
+# Important:
+# The current validator performs installation validation,
+# not full semantic/behavioral equivalence.
+VALIDATION_TYPE = "installation"
+
+
+# ============================================================
+# Execution / validation
+# ============================================================
 
 PYTHON_EXECUTABLE = os.getenv(
     "PYTHON_EXECUTABLE",
@@ -59,6 +99,11 @@ SANDBOX_TIMEOUT = int(
 VALIDATION_TIMEOUT = int(
     os.getenv("VALIDATION_TIMEOUT", "180")
 )
+
+
+# ============================================================
+# Trace configuration
+# ============================================================
 
 TRACE_DIR = Path(
     os.getenv(
@@ -89,14 +134,15 @@ TRACE_WINDOW = int(
     os.getenv("TRACE_WINDOW", "120")
 )
 
+
+# ============================================================
+# Artifact retention
+# ============================================================
+
 KEEP_GENERATED_VARIANTS = (
     os.getenv(
         "KEEP_GENERATED_VARIANTS",
         "true",
     ).lower()
     == "true"
-)
-
-EXPERIMENT_NAME = (
-    "dysec_progressive_llm_robustness"
 )

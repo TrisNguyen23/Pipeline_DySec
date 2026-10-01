@@ -13,7 +13,6 @@ from pipeline.loop import run_package
 
 
 def discover_archives() -> list[Path]:
-
     if not PACKAGES_DIR.exists():
         raise FileNotFoundError(
             f"Packages directory not found: "
@@ -22,17 +21,45 @@ def discover_archives() -> list[Path]:
 
     return sorted(
         path
-        for path in PACKAGES_DIR.rglob(
-            "*.tar.gz"
-        )
+        for path in PACKAGES_DIR.rglob("*.tar.gz")
         if path.is_file()
     )
+
+
+def select_archives(
+    archives: list[Path],
+    package_name: str | None = None,
+    limit: int | None = None,
+) -> list[Path]:
+    selected = archives
+
+    if package_name:
+        selected = [
+            archive
+            for archive in selected
+            if archive.name.removesuffix(".tar.gz")
+            == package_name
+        ]
+
+        if not selected:
+            raise RuntimeError(
+                f"Package not found: {package_name}"
+            )
+
+    if limit is not None:
+        if limit <= 0:
+            raise ValueError(
+                "--limit must be greater than 0."
+            )
+
+        selected = selected[:limit]
+
+    return selected
 
 
 def save_results(
     results: list[dict],
 ) -> None:
-
     OUTPUT_DIR.mkdir(
         parents=True,
         exist_ok=True,
@@ -59,7 +86,6 @@ def save_results(
         newline="",
         encoding="utf-8",
     ) as file:
-
         writer = csv.DictWriter(
             file,
             fieldnames=fieldnames,
@@ -67,14 +93,10 @@ def save_results(
         )
 
         writer.writeheader()
-
-        writer.writerows(
-            results
-        )
+        writer.writerows(results)
 
 
 def main() -> None:
-
     parser = argparse.ArgumentParser(
         description=(
             "Run the DySec robustness "
@@ -95,6 +117,31 @@ def main() -> None:
         ),
     )
 
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help=(
+            "Run only the first N discovered "
+            "packages."
+        ),
+    )
+
+    parser.add_argument(
+        "--package",
+        type=str,
+        default=None,
+        help=(
+            "Run one specific package by archive "
+            "basename without .tar.gz."
+        ),
+    )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume after manually recording DySec feedback.",
+    )
+
     args = parser.parse_args()
 
     archives = discover_archives()
@@ -104,45 +151,73 @@ def main() -> None:
             "No .tar.gz packages found."
         )
 
+    selected_archives = select_archives(
+        archives,
+        package_name=args.package,
+        limit=args.limit,
+    )
+
+    if not selected_archives:
+        raise RuntimeError(
+            "No packages selected."
+        )
+
     print(
         f"Found {len(archives)} packages."
+    )
+
+    print(
+        f"Selected {len(selected_archives)} package(s)."
     )
 
     print(
         f"Method: {args.method}"
     )
 
+    if args.package:
+        print(
+            f"Package filter: {args.package}"
+        )
+
+    if args.limit is not None:
+        print(
+            f"Limit: {args.limit}"
+        )
+
     results = []
 
     for index, archive in enumerate(
-        archives,
+        selected_archives,
         start=1,
     ):
-
         package_name = (
-            archive.name
-            .removesuffix(".tar.gz")
+            archive.name.removesuffix(
+                ".tar.gz"
+            )
         )
 
         print()
         print("=" * 70)
         print(
-            f"[{index}/{len(archives)}] "
+            f"[{index}/{len(selected_archives)}] "
             f"{package_name}"
         )
         print("=" * 70)
 
         try:
-
             result = run_package(
                 archive_path=archive,
                 method=args.method,
+                resume=args.resume,
             )
 
             results.append(result)
 
-        except Exception as exc:
+            print(
+                f"Status: {result.get('status')}"
+            )
 
+        except Exception as exc:
             result = {
                 "package": package_name,
                 "status": "PACKAGE_ERROR",

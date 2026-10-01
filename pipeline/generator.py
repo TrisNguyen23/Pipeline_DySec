@@ -15,6 +15,7 @@ from config.settings import (
 
 
 def _clean_code(text: str) -> str:
+
     text = text.strip()
 
     python_match = re.search(
@@ -41,6 +42,7 @@ def _clean_code(text: str) -> str:
 def _validate_python(
     code: str,
 ) -> None:
+
     compile(
         code,
         "<generated_variant>",
@@ -51,6 +53,7 @@ def _validate_python(
 def generate_variant(
     prompt: str,
 ) -> dict[str, Any]:
+
     payload = {
         "model": MODEL_NAME,
         "prompt": prompt,
@@ -63,6 +66,7 @@ def generate_variant(
     start = time.monotonic()
 
     try:
+
         response = requests.post(
             OLLAMA_API,
             json=payload,
@@ -92,6 +96,8 @@ def generate_variant(
                 "code": None,
                 "tokens": {},
                 "response_metadata": data,
+                "model": MODEL_NAME,
+                "temperature": TEMPERATURE,
                 "error": (
                     "Ollama returned empty code."
                 ),
@@ -99,12 +105,16 @@ def generate_variant(
 
         try:
             _validate_python(code)
+
         except SyntaxError as exc:
+
             return {
                 "success": False,
                 "code": code,
                 "tokens": {},
                 "response_metadata": data,
+                "model": MODEL_NAME,
+                "temperature": TEMPERATURE,
                 "error": (
                     "Generated code has invalid "
                     f"Python syntax: {exc}"
@@ -119,7 +129,9 @@ def generate_variant(
             "created_at": data.get(
                 "created_at"
             ),
-            "done": data.get("done"),
+            "done": data.get(
+                "done"
+            ),
             "done_reason": data.get(
                 "done_reason"
             ),
@@ -141,9 +153,6 @@ def generate_variant(
             "eval_duration": data.get(
                 "eval_duration"
             ),
-            "context": data.get(
-                "context"
-            ),
         }
 
         tokens = {
@@ -160,15 +169,20 @@ def generate_variant(
             "code": code,
             "tokens": tokens,
             "response_metadata": metadata,
+            "model": MODEL_NAME,
+            "temperature": TEMPERATURE,
             "error": None,
         }
 
     except requests.Timeout:
+
         return {
             "success": False,
             "code": None,
             "tokens": {},
             "response_metadata": {},
+            "model": MODEL_NAME,
+            "temperature": TEMPERATURE,
             "error": (
                 f"Ollama request timed out "
                 f"after {LLM_TIMEOUT}s."
@@ -176,22 +190,28 @@ def generate_variant(
         }
 
     except requests.RequestException as exc:
+
         return {
             "success": False,
             "code": None,
             "tokens": {},
             "response_metadata": {},
+            "model": MODEL_NAME,
+            "temperature": TEMPERATURE,
             "error": (
                 f"Ollama request failed: {exc}"
             ),
         }
 
     except Exception as exc:
+
         return {
             "success": False,
             "code": None,
             "tokens": {},
             "response_metadata": {},
+            "model": MODEL_NAME,
+            "temperature": TEMPERATURE,
             "error": (
                 f"Generation failed: {exc}"
             ),

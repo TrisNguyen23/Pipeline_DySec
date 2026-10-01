@@ -3,11 +3,15 @@ from __future__ import annotations
 import ast
 import hashlib
 import tokenize
+from difflib import SequenceMatcher
 from io import StringIO
 
 
-def _tokens(source: str) -> list[str]:
-    result = []
+def _tokens(
+    source: str,
+) -> list[str]:
+
+    result: list[str] = []
 
     try:
         stream = StringIO(
@@ -17,6 +21,7 @@ def _tokens(source: str) -> list[str]:
         for token in tokenize.generate_tokens(
             stream
         ):
+
             if token.type in {
                 tokenize.ENCODING,
                 tokenize.ENDMARKER,
@@ -28,9 +33,7 @@ def _tokens(source: str) -> list[str]:
             }:
                 continue
 
-            result.append(
-                token.string
-            )
+            result.append(token.string)
 
     except (
         tokenize.TokenError,
@@ -44,34 +47,31 @@ def _tokens(source: str) -> list[str]:
 def _ast_structure(
     source: str,
 ) -> list[str]:
+
     tree = ast.parse(source)
 
-    result = []
-
-    for node in ast.walk(tree):
-        result.append(
-            type(node).__name__
-        )
-
-    return result
+    return [
+        type(node).__name__
+        for node in ast.walk(tree)
+    ]
 
 
 def _similarity(
     a: list[str],
     b: list[str],
 ) -> float:
+
     if not a and not b:
         return 1.0
 
     if not a or not b:
         return 0.0
 
-    from difflib import SequenceMatcher
-
     return SequenceMatcher(
         None,
         a,
         b,
+        autojunk=False,
     ).ratio()
 
 
@@ -81,21 +81,43 @@ def source_change_guard(
     minimum_token_similarity: float = 0.55,
     minimum_ast_similarity: float = 0.70,
 ) -> dict:
-    original_tokens = _tokens(
-        original_source
-    )
 
-    generated_tokens = _tokens(
-        generated_source
-    )
+    if not original_source.strip():
+        return {
+            "accepted": False,
+            "reason": "Original source is empty.",
+        }
 
-    original_ast = _ast_structure(
-        original_source
-    )
+    if not generated_source.strip():
+        return {
+            "accepted": False,
+            "reason": "Generated source is empty.",
+        }
 
-    generated_ast = _ast_structure(
-        generated_source
-    )
+    try:
+        original_tokens = _tokens(
+            original_source
+        )
+
+        generated_tokens = _tokens(
+            generated_source
+        )
+
+        original_ast = _ast_structure(
+            original_source
+        )
+
+        generated_ast = _ast_structure(
+            generated_source
+        )
+
+    except SyntaxError as exc:
+        return {
+            "accepted": False,
+            "reason": (
+                f"Python parsing failed: {exc}"
+            ),
+        }
 
     token_similarity = _similarity(
         original_tokens,
@@ -116,8 +138,20 @@ def source_change_guard(
 
     return {
         "accepted": accepted,
-        "token_similarity": token_similarity,
-        "ast_similarity": ast_similarity,
+        "reason": (
+            "Source satisfies similarity guard."
+            if accepted
+            else
+            "Source failed similarity guard."
+        ),
+        "token_similarity": round(
+            token_similarity,
+            4,
+        ),
+        "ast_similarity": round(
+            ast_similarity,
+            4,
+        ),
         "original_token_count": len(
             original_tokens
         ),

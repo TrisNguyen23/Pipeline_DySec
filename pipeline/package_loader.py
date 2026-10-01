@@ -9,11 +9,6 @@ class PackageExtractionError(RuntimeError):
     pass
 
 
-# setup.py is intentionally allowed as a mutation target because
-# the malicious packages in this dataset place their relevant
-# installation behaviour there.
-#
-# Other packaging/configuration files are not mutation targets.
 NON_MUTATABLE_PACKAGING_FILES = {
     "setup.cfg",
     "pyproject.toml",
@@ -59,9 +54,11 @@ def extract_package(
                 / member.name
             ).resolve()
 
-            if not str(member_path).startswith(
-                str(destination_root) + "/"
-            ):
+            try:
+                member_path.relative_to(
+                    destination_root
+                )
+            except ValueError:
                 raise PackageExtractionError(
                     f"Unsafe archive path: "
                     f"{member.name}"
@@ -76,10 +73,6 @@ def extract_package(
         archive.extractall(
             destination_root
         )
-
-    return find_package_root(
-        destination_root
-    )
 
 
 def find_package_root(
@@ -139,16 +132,14 @@ def collect_python_files(
         package_root
     ).resolve()
 
-    files = [
+    return sorted(
         path
         for path in package_root.rglob("*.py")
         if (
             path.is_file()
             and path.stat().st_size > 0
         )
-    ]
-
-    return sorted(files)
+    )
 
 
 def collect_transformable_python_files(
@@ -158,16 +149,6 @@ def collect_transformable_python_files(
     package_root = Path(
         package_root
     ).resolve()
-
-    setup_py = package_root / "setup.py"
-
-    # setup.py is the primary mutation target for this dataset.
-    # If it exists and contains source, use it directly.
-    if (
-        setup_py.is_file()
-        and setup_py.stat().st_size > 0
-    ):
-        return [setup_py]
 
     candidates: list[Path] = []
 
@@ -183,7 +164,7 @@ def collect_transformable_python_files(
             package_root
         )
 
-        # Never mutate tests.
+        # Không mutate test code.
         if any(
             part.lower() in {
                 "test",
@@ -193,20 +174,15 @@ def collect_transformable_python_files(
         ):
             continue
 
-        # setup.py was already handled above.
-        #
-        # Other packaging/configuration Python files should
-        # not become mutation targets.
-        if path.name in NON_MUTATABLE_PACKAGING_FILES:
+        # setup.py là packaging metadata,
+        # không phải target mutation thông thường.
+        if path.name == "setup.py":
             continue
 
-        # Empty __init__.py files are already excluded by
-        # the size check. Non-empty __init__.py files remain
-        # valid implementation candidates when no setup.py
-        # target exists.
+        # __init__.py vẫn được giữ lại như
+        # fallback nếu package không có module khác.
         candidates.append(path)
 
-    # Prefer actual implementation files over __init__.py.
     non_init_files = [
         path
         for path in candidates
@@ -241,16 +217,25 @@ def copy_package(
     )
 
     return destination
+
+
 def create_package_archive(
     package_root: Path,
     archive_path: Path,
 ) -> Path:
-    package_root = Path(package_root).resolve()
-    archive_path = Path(archive_path).resolve()
+
+    package_root = Path(
+        package_root
+    ).resolve()
+
+    archive_path = Path(
+        archive_path
+    ).resolve()
 
     if not package_root.exists():
         raise FileNotFoundError(
-            f"Package root does not exist: {package_root}"
+            f"Package root does not exist: "
+            f"{package_root}"
         )
 
     archive_path.parent.mkdir(
@@ -261,16 +246,24 @@ def create_package_archive(
     if archive_path.exists():
         archive_path.unlink()
 
+    base_dir = package_root.parent
+
     with tarfile.open(
         archive_path,
         "w:gz",
     ) as archive:
-        for path in sorted(package_root.rglob("*")):
+
+        for path in sorted(
+            package_root.rglob("*")
+        ):
+
+            relative_path = path.relative_to(
+                base_dir
+            )
+
             archive.add(
                 path,
-                arcname=path.relative_to(
-                    package_root.parent
-                ),
+                arcname=relative_path,
                 recursive=False,
             )
 
