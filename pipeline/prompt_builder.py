@@ -7,6 +7,9 @@ from typing import Any
 def _format_plan(
     mutation_plan: dict[str, Any],
 ) -> str:
+    """
+    Format the mutation plan into a deterministic text representation.
+    """
 
     target_type = mutation_plan.get(
         "target_type",
@@ -34,7 +37,7 @@ def _format_plan(
     )
 
     candidate_score = mutation_plan.get(
-        "candidate_score"
+        "candidate_score",
     )
 
     candidate_features = mutation_plan.get(
@@ -51,7 +54,7 @@ def _format_plan(
 
     if candidate_score is not None:
         lines.append(
-            f"Candidate suitability score: "
+            "Candidate suitability score: "
             f"{candidate_score}"
         )
 
@@ -76,6 +79,9 @@ def _format_plan(
 def _format_package_features(
     package_features: dict[str, Any] | None,
 ) -> str:
+    """
+    Format package-level structural analysis.
+    """
 
     if not package_features:
         return (
@@ -93,6 +99,12 @@ def _format_package_features(
 def _format_history(
     history: list[dict[str, Any]] | None,
 ) -> str:
+    """
+    Format previous mutation attempts.
+
+    Historical detector feedback is reported as experiment metadata.
+    It is not converted into mutation-selection instructions.
+    """
 
     if not history:
         return (
@@ -110,6 +122,11 @@ def _format_history(
 
         target_source = entry.get(
             "target_source",
+            "unknown",
+        )
+
+        target_type = entry.get(
+            "target_type",
             "unknown",
         )
 
@@ -131,6 +148,7 @@ def _format_history(
         lines.append(
             f"Round {round_number}: "
             f"source={target_source}, "
+            f"target_type={target_type}, "
             f"target={target}, "
             f"transformation={transformation}, "
             f"status={status}"
@@ -158,6 +176,7 @@ def _format_history(
                 lines.append(
                     f"  DySec verdict: {verdict}"
                 )
+
             else:
                 lines.append(
                     f"  DySec verdict: "
@@ -170,6 +189,12 @@ def _format_history(
 def _format_dysec_feedback(
     dysec_feedback: dict[str, Any] | None,
 ) -> str:
+    """
+    Format the latest external evaluation result.
+
+    This information is descriptive only. It must not be used to
+    instruct the model to optimize against the detector.
+    """
 
     if not dysec_feedback:
         return (
@@ -196,6 +221,63 @@ def _format_dysec_feedback(
     )
 
 
+def _target_instruction(
+    mutation_plan: dict[str, Any],
+) -> str:
+    """
+    Generate target-specific instructions without assuming that the
+    target is a function.
+    """
+
+    target_type = mutation_plan.get(
+        "target_type",
+        "unknown",
+    )
+
+    target = mutation_plan.get(
+        "target",
+        "unknown",
+    )
+
+    start_line = mutation_plan.get(
+        "start_line",
+    )
+
+    end_line = mutation_plan.get(
+        "end_line",
+    )
+
+    if target_type == "function":
+
+        return (
+            f"Target type: function\n"
+            f"Target function: {target}\n"
+            f"Target lines: {start_line}-{end_line}"
+        )
+
+    if target_type == "class":
+
+        return (
+            f"Target type: class\n"
+            f"Target class: {target}\n"
+            f"Target lines: {start_line}-{end_line}"
+        )
+
+    if target_type == "module_block":
+
+        return (
+            f"Target type: module-level executable block\n"
+            f"Target block: {target}\n"
+            f"Target lines: {start_line}-{end_line}"
+        )
+
+    return (
+        f"Target type: {target_type}\n"
+        f"Target: {target}\n"
+        f"Target lines: {start_line}-{end_line}"
+    )
+
+
 def build_prompt(
     source_code: str,
     mutation_plan: dict[str, Any],
@@ -205,6 +287,13 @@ def build_prompt(
     package_features: dict[str, Any] | None = None,
     dysec_feedback: dict[str, Any] | None = None,
 ) -> str:
+    """
+    Build the complete LLM mutation prompt.
+
+    The prompt supports function, class, and module-level targets.
+    Detector feedback is included only as observational experiment
+    metadata and does not instruct adaptive detector evasion.
+    """
 
     plan_text = _format_plan(
         mutation_plan
@@ -222,6 +311,11 @@ def build_prompt(
         dysec_feedback
     )
 
+    target_type = mutation_plan.get(
+        "target_type",
+        "unknown",
+    )
+
     target = mutation_plan.get(
         "target",
         "unknown",
@@ -230,6 +324,10 @@ def build_prompt(
     transformation = mutation_plan.get(
         "transformation",
         "unknown",
+    )
+
+    target_instruction = _target_instruction(
+        mutation_plan
     )
 
     return f"""
@@ -243,7 +341,7 @@ variant of the supplied Python file.
 
 The generated variant should preserve the
 observable behavior of the supplied code
-while applying the requested source
+while applying the requested source-level
 transformation.
 
 Do NOT add new malicious capabilities.
@@ -260,11 +358,28 @@ Round: {round_number}
 Target source:
 {target_source}
 
+Target type:
+{target_type}
+
 Target:
 {target}
 
 Requested transformation:
 {transformation}
+
+============================================================
+TARGET INSTRUCTIONS
+============================================================
+
+{target_instruction}
+
+The target may be a function, class, or
+module-level executable block.
+
+Modify the specified target only.
+
+Do not replace the selected target with
+an unrelated source region.
 
 ============================================================
 PACKAGE ANALYSIS
@@ -281,14 +396,21 @@ MUTATION PLAN
 The mutation planner determines the target
 and requested transformation.
 
-Do not replace the target with an unrelated
-function or source region.
+The planner output must be treated as the
+authoritative mutation scope.
 
 ============================================================
 PREVIOUS ATTEMPTS
 ============================================================
 
 {history_text}
+
+Previous attempts are provided for
+experimental traceability.
+
+Do not use previous detector results to
+infer hidden detector features or construct
+detector-specific evasion strategies.
 
 ============================================================
 DYSEC FEEDBACK
@@ -298,15 +420,15 @@ DYSEC FEEDBACK
 
 DySec is an external black-box evaluator.
 
-If a previous variant was DETECTED, make
-the next transformation substantively
-different where possible.
+The reported verdict and score are included
+as observational experiment metadata only.
 
-Do not infer which internal detector
-features caused detection.
+Do not infer the implementation, features,
+thresholds, or internal decision process of
+the detector.
 
-Do not attempt to manipulate an assumed
-detector implementation.
+Do not optimize the mutation specifically
+against the detector.
 
 ============================================================
 SOURCE
@@ -319,16 +441,23 @@ MODIFICATION CONSTRAINTS
 
 Modify ONLY this supplied Python source file.
 
-Target function:
+Target:
 {target}
+
+Target type:
+{target_type}
 
 Requested transformation:
 {transformation}
+
+Target-specific scope:
+{target_instruction}
 
 Preserve:
 
 function signatures
 public API
+class interfaces
 return values
 exception behavior
 relevant side effects
@@ -344,7 +473,8 @@ remove dependencies
 modify package metadata
 modify setup configuration
 modify entry points
-rename public functions/classes
+rename public functions
+rename public classes
 add functionality
 remove functionality
 add persistence
@@ -352,19 +482,21 @@ add credential collection
 add destructive behavior
 add additional network communication
 modify unrelated functions
+modify unrelated classes
+modify unrelated module-level code
 rewrite the entire file unnecessarily
 
 Keep the modification local to the requested
 target.
 
 The transformation should be structural or
-semantic-preserving rather than merely cosmetic.
+semantic-preserving rather than merely
+cosmetic.
 
 ============================================================
 OUTPUT
 
-Return ONLY the complete modified Python
-source code.
+Return ONLY the modified target region.
 
 Do not return:
 

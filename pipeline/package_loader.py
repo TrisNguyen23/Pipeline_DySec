@@ -164,7 +164,7 @@ def collect_transformable_python_files(
             package_root
         )
 
-        # Không mutate test code.
+        # Do not mutate test code.
         if any(
             part.lower() in {
                 "test",
@@ -174,15 +174,14 @@ def collect_transformable_python_files(
         ):
             continue
 
-        # setup.py là packaging metadata,
-        # không phải target mutation thông thường.
-        if path.name == "setup.py":
-            continue
-
-        # __init__.py vẫn được giữ lại như
-        # fallback nếu package không có module khác.
+        # setup.py holds special meaning in packaging, so we avoid mutating it.
+        # Python code can be analyzed/mutated.
         candidates.append(path)
 
+    # Prefer regular Python modules.
+    # If only __init__.py is present, keep it
+    # for the AST/function analysis step to decide
+    # whether it has mutation targets.
     non_init_files = [
         path
         for path in candidates
