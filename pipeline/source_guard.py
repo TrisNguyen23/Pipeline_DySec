@@ -78,8 +78,8 @@ def _similarity(
 def source_change_guard(
     original_source: str,
     generated_source: str,
-    minimum_token_similarity: float = 0.55,
-    minimum_ast_similarity: float = 0.70,
+    minimum_token_similarity: float = 0.25,
+    minimum_ast_similarity: float = 0.35,
 ) -> dict:
 
     if not original_source.strip():

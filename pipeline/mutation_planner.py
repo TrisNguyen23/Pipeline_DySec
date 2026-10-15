@@ -19,21 +19,34 @@ MAX_MODULE_BLOCK_LINES = 40
 
 # Target-level transformation compatibility.
 TRANSFORMATIONS = (
-    "internal_function_refactoring",
-    "control_flow_refactoring",
-    "expression_refactoring",
+    "instruction_substitution",
+    "control_flow_flattening",
+    "polymorphic_encryption",
+    "opaque_predicates",
+    "dead_code_insertion",
+    "optimize",
+    "harden",
+    "refactor",
 )
 
 TRANSFORMATIONS_BY_TARGET = {
     "function": (
-        "internal_function_refactoring",
-        "control_flow_refactoring",
-        "expression_refactoring",
+        "instruction_substitution",
+        "control_flow_flattening",
+        "polymorphic_encryption",
+        "opaque_predicates",
+        "dead_code_insertion",
+        "optimize",
+        "harden",
+        "refactor",
     ),
     "class": (
-        "internal_function_refactoring",
-        "control_flow_refactoring",
-        "expression_refactoring",
+        "instruction_substitution",
+        "polymorphic_encryption",
+        "opaque_predicates",
+        "dead_code_insertion",
+        "optimize",
+        "refactor",
     ),
 }
 
@@ -42,56 +55,53 @@ TRANSFORMATIONS_BY_TARGET = {
 # are executable top-level statements and are usually more fragile than
 # function-level targets.
 TRANSFORMATIONS_BY_MODULE_BLOCK = {
-    # Control-flow structures.
     "if": (
-        "control_flow_refactoring",
+        "control_flow_flattening",
+        "opaque_predicates",
+        "dead_code_insertion",
     ),
     "for": (
-        "control_flow_refactoring",
+        "control_flow_flattening",
+        "opaque_predicates",
+        "optimize",
     ),
     "while": (
-        "control_flow_refactoring",
+        "control_flow_flattening",
+        "opaque_predicates",
     ),
     "try": (
-        "control_flow_refactoring",
+        "instruction_substitution",
+        "opaque_predicates",
+        "dead_code_insertion",
     ),
     "with": (
-        "control_flow_refactoring",
+        "instruction_substitution",
+        "refactor",
     ),
     "match": (
-        "control_flow_refactoring",
+        "control_flow_flattening",
+        "opaque_predicates",
     ),
-
-    # Expression-like structures.
     "expression": (
-        "expression_refactoring",
+        "instruction_substitution",
+        "polymorphic_encryption",
     ),
     "assignment": (
-        "expression_refactoring",
+        "polymorphic_encryption",
+        "instruction_substitution",
     ),
     "annotated_assignment": (
-        "expression_refactoring",
+        "polymorphic_encryption",
+        "instruction_substitution",
     ),
     "augmented_assignment": (
-        "expression_refactoring",
+        "instruction_substitution",
+        "refactor",
     ),
-
-    # These are deliberately conservative.
-    #
-    # A return/raise/assert/delete at module scope is unusual and should
-    # not automatically receive an incompatible transformation.
-    "return": (
-        "expression_refactoring",
-    ),
-    "raise": (
-        "expression_refactoring",
-    ),
-    "assert": (
-        "expression_refactoring",
-    ),
-    "delete": (
-        "expression_refactoring",
-    ),
+    "return": ("refactor",),
+    "raise": ("refactor",),
+    "assert": ("refactor",),
+    "delete": ("refactor",),
 }
 
 
@@ -1019,6 +1029,78 @@ def _attempted_keys(
 
 
 # ---------------------------------------------------------------------------
+# Feedback handling
+# ---------------------------------------------------------------------------
+
+
+def _detected_targets(
+    history: list[dict[str, Any]] | None,
+) -> set[
+    tuple[str, str]
+]:
+    """
+    Collect (target_source, target) pairs that have at least one
+    attempted transformation whose DySec verdict was DETECTED (or
+    MALICIOUS).
+
+    A verdict only exists for a combination that was already attempted,
+    so this is tracked at the target level rather than the
+    target/transformation level: an untried transformation on a target
+    that was previously detected is still eligible, but the planner
+    tries untouched targets first when feedback_mode is enabled.
+    """
+
+    targets: set[
+        tuple[str, str]
+    ] = set()
+
+    for entry in history or []:
+
+        dysec = entry.get(
+            "dysec"
+        )
+
+        if not isinstance(
+            dysec,
+            dict,
+        ):
+            continue
+
+        verdict = dysec.get(
+            "verdict"
+        )
+
+        if verdict not in (
+            "DETECTED",
+            "MALICIOUS",
+        ):
+            continue
+
+        target = entry.get(
+            "target"
+        )
+
+        if not target:
+            continue
+
+        target_source = entry.get(
+            "target_source"
+        )
+
+        targets.add(
+            (
+                str(
+                    target_source
+                    or ""
+                ),
+                str(target),
+            )
+        )
+
+    return targets
+
+
+# ---------------------------------------------------------------------------
 # Transformation selection
 # ---------------------------------------------------------------------------
 
@@ -1089,20 +1171,33 @@ def _rank_candidates(
     candidates: list[dict[str, Any]],
     history: list[dict[str, Any]] | None,
     target_source: str,
+    feedback_mode: bool = False,
 ) -> list[dict[str, Any]]:
     """
     Rank candidates using mutation suitability rather than raw complexity.
 
     Ranking priority:
         1. target type priority
-        2. suitability score
-        3. smaller target size
-        4. number of remaining compatible transformations
-        5. stable target name
+        2. (feedback_mode only) whether this target/transformation
+           combination was DETECTED by DySec in a previous round
+        3. suitability score
+        4. smaller target size
+        5. number of remaining compatible transformations
+        6. stable target name
+
+    feedback_mode does not change which combinations are eligible; a
+    combination with a DETECTED history is still selected once every
+    not-yet-detected combination has been exhausted.
     """
 
     attempted = _attempted_keys(
         history
+    )
+
+    detected_targets = (
+        _detected_targets(history)
+        if feedback_mode
+        else set()
     )
 
     ranked: list[
@@ -1182,8 +1277,18 @@ def _rank_candidates(
             99,
         )
 
+        # Prefer a target with no DETECTED verdict on any prior
+        # attempt. False (0) sorts before True (1), so untouched
+        # targets are ranked ahead of targets the detector has already
+        # flagged at least once, without excluding the latter.
+        was_detected = (
+            target_source,
+            target,
+        ) in detected_targets
+
         ranking_key = (
             priority,
+            was_detected,
             -score,
             lines,
             -len(possible),
@@ -1223,9 +1328,15 @@ def build_mutation_plan(
     """
     Build a deterministic package-aware mutation plan.
 
-    The planner does not use detector feedback to optimize detector
-    evasion. Feedback mode is retained as experiment metadata so the
-    same planner interface can be used across experimental conditions.
+    When feedback_mode is True, a target that already has a DETECTED
+    verdict on some prior attempt is ranked below targets with no such
+    history, so the planner tries untouched targets before returning to
+    ones the detector has already flagged. Every target/transformation
+    combination remains reachable; this only changes the ORDER of
+    selection, never the set of reachable mutations. The planner still
+    does not use detector output to redesign the transformation itself
+    (transformation choice follows the same deterministic cycle in both
+    modes) and does not inspect detector internals.
     """
 
     analysis = analyze_source(
@@ -1248,6 +1359,7 @@ def build_mutation_plan(
         candidates,
         history,
         source_path or "",
+        feedback_mode=feedback_mode,
     )
 
     # If every compatible target/transformation combination has been

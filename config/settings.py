@@ -37,13 +37,28 @@ OLLAMA_API = os.getenv(
 
 MODEL_NAME = os.getenv(
     "MODEL_NAME",
-    "qwen3:8b",
+    "huihui_ai/qwen3-abliterated:14b-v2",
 )
 
 TEMPERATURE = float(
-    os.getenv("TEMPERATURE", "0.5")
+    os.getenv("TEMPERATURE", "0")
+)
+ENABLE_THINKING = (
+    os.getenv("ENABLE_THINKING", "false").lower() == "true"
 )
 
+TOP_P = float(os.getenv("TOP_P", "0.9"))
+TOP_K = int(os.getenv("TOP_K", "40"))
+
+PRESENCE_PENALTY = float(
+    os.getenv("PRESENCE_PENALTY", "0.0")
+)
+
+STOP_SEQUENCES = [
+    item
+    for item in os.getenv("STOP_SEQUENCES", "").split("|")
+    if item
+]
 LLM_TIMEOUT = int(
     os.getenv("LLM_TIMEOUT", "500")
 )
@@ -70,6 +85,11 @@ EXPERIMENT_METHODS = (
     "function_level",
     "proposed",
     "proposed_feedback",
+    "strategy_substitution",
+    "strategy_flattening",
+    "strategy_encryption",
+    "strategy_opaque",
+    "proposed_heavy",
 )
 
 PROMPT_VERSION = os.getenv(

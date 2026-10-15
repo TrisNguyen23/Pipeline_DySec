@@ -1,0 +1,2421 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Pipeline DySec — Evaluation Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <!-- Lucide Icons CDN -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+      :root {
+        --bg-body: #090d16;
+        --bg-surface: #111726;
+        --bg-surface-elevated: #182235;
+        --bg-input: #0b111d;
+        --bg-terminal: #050811;
+        --border-subtle: #1e293b;
+        --border-strong: #334155;
+        --primary: #0284c7;
+        --primary-hover: #0369a1;
+        --accent: #38bdf8;
+        --accent-2: #a78bfa;
+        --success: #10b981;
+        --danger: #f43f5e;
+        --danger-hover: #e11d48;
+        --warning: #f59e0b;
+        --text-main: #f8fafc;
+        --text-secondary: #94a3b8;
+        --text-muted: #64748b;
+        --font-sans: "Plus Jakarta Sans", -apple-system, sans-serif;
+        --font-mono: "JetBrains Mono", monospace;
+      }
+
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        font-family: var(--font-sans);
+        background: var(--bg-body);
+        color: var(--text-main);
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }
+
+      /* Navbar */
+      .navbar {
+        height: 64px;
+        background: rgba(17, 23, 38, 0.85);
+        backdrop-filter: blur(16px);
+        border-bottom: 1px solid var(--border-subtle);
+        padding: 0 2rem;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        position: sticky;
+        top: 0;
+        z-index: 50;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .brand-badge {
+        background: linear-gradient(135deg, #0284c7, #38bdf8);
+        color: #fff;
+        font-weight: 700;
+        font-size: 13px;
+        padding: 4px 10px;
+        border-radius: 6px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .brand-title {
+        font-size: 16px;
+        font-weight: 600;
+        color: var(--text-main);
+      }
+
+      .nav-right {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .token-pill {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 14px;
+        border-radius: 999px;
+        background: rgba(167, 139, 250, 0.1);
+        border: 1px solid rgba(167, 139, 250, 0.3);
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--accent-2);
+      }
+
+      .token-pill b {
+        font-family: var(--font-mono);
+        font-weight: 600;
+        color: var(--text-main);
+      }
+
+      .status-pill {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 14px;
+        border-radius: 999px;
+        background: rgba(56, 189, 248, 0.1);
+        border: 1px solid rgba(56, 189, 248, 0.25);
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--accent);
+      }
+
+      .status-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--accent);
+        box-shadow: 0 0 10px var(--accent);
+      }
+
+      .status-dot.active {
+        background: var(--success);
+        box-shadow: 0 0 10px var(--success);
+      }
+
+      .status-dot.stopped {
+        background: var(--danger);
+        box-shadow: 0 0 10px var(--danger);
+      }
+
+      /* Workspace */
+      .workspace {
+        flex: 1;
+        max-width: 1720px;
+        width: 100%;
+        margin: 0 auto;
+        padding: 24px;
+        display: grid;
+        grid-template-columns: 420px minmax(0, 1fr);
+        gap: 24px;
+      }
+
+      .pane {
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+        min-width: 0;
+      }
+
+      /* Card styling */
+      .card {
+        background: var(--bg-surface);
+        border: 1px solid var(--border-subtle);
+        border-radius: 12px;
+        overflow: hidden;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+      }
+
+      .card-header {
+        padding: 14px 18px;
+        background: rgba(24, 34, 53, 0.5);
+        border-bottom: 1px solid var(--border-subtle);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .card-title {
+        font-size: 13px;
+        font-weight: 700;
+        letter-spacing: 0.5px;
+        text-transform: uppercase;
+        color: var(--text-secondary);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .card-body {
+        padding: 18px;
+      }
+
+      /* Controls */
+      label {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 11.5px;
+        font-weight: 600;
+        text-transform: uppercase;
+        color: var(--text-muted);
+        margin-bottom: 6px;
+      }
+
+      input,
+      select {
+        width: 100%;
+        background: var(--bg-input);
+        border: 1px solid var(--border-strong);
+        color: var(--text-main);
+        border-radius: 8px;
+        padding: 9px 12px;
+        font-size: 13.5px;
+        font-family: inherit;
+        outline: none;
+        transition:
+          border-color 0.2s,
+          box-shadow 0.2s;
+      }
+
+      input:focus,
+      select:focus {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2);
+      }
+
+      .filter-checkbox {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        background: rgba(56, 189, 248, 0.06);
+        border: 1px solid rgba(56, 189, 248, 0.25);
+        border-radius: 8px;
+        margin-bottom: 12px;
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--accent);
+        text-transform: none;
+      }
+
+      .filter-checkbox input[type="checkbox"] {
+        width: 15px;
+        height: 15px;
+        accent-color: var(--accent);
+        cursor: pointer;
+      }
+
+      .grid-2 {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+      }
+
+      /* Selected Package Card */
+      .selected-package-box {
+        background: var(--bg-input);
+        border: 1px solid var(--border-strong);
+        border-radius: 10px;
+        padding: 14px;
+        margin: 12px 0 16px 0;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .pkg-title {
+        font-size: 14.5px;
+        font-weight: 700;
+        color: var(--accent);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .pkg-meta {
+        font-size: 12px;
+        font-family: var(--font-mono);
+        color: var(--text-secondary);
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        word-break: break-all;
+      }
+
+      /* Button Action Bar */
+      .action-buttons {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+      }
+
+      .btn-run {
+        width: 100%;
+        padding: 12px;
+        background: linear-gradient(135deg, #0284c7, #2563eb);
+        color: #ffffff;
+        font-size: 15px;
+        font-weight: 700;
+        border: none;
+        border-radius: 8px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        letter-spacing: 0.5px;
+        transition:
+          opacity 0.2s,
+          transform 0.1s;
+      }
+
+      .btn-run:hover:not(:disabled) {
+        opacity: 0.95;
+        transform: translateY(-1px);
+      }
+
+      .btn-run:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+
+      .btn-stop {
+        width: 100%;
+        padding: 12px;
+        background: rgba(244, 63, 94, 0.12);
+        border: 1px solid rgba(244, 63, 94, 0.4);
+        color: #fda4af;
+        font-size: 15px;
+        font-weight: 700;
+        border-radius: 8px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        letter-spacing: 0.5px;
+        transition:
+          all 0.2s,
+          transform 0.1s;
+      }
+
+      .btn-stop:hover:not(:disabled) {
+        background: var(--danger);
+        color: #ffffff;
+        border-color: var(--danger);
+        transform: translateY(-1px);
+      }
+
+      .btn-stop:disabled {
+        opacity: 0.35;
+        cursor: not-allowed;
+        border-color: rgba(244, 63, 94, 0.2);
+        background: rgba(244, 63, 94, 0.05);
+        color: var(--text-muted);
+      }
+
+      .btn-resume {
+        width: 100%;
+        padding: 10px;
+        background: var(--bg-surface-elevated);
+        border: 1px solid var(--border-strong);
+        color: var(--text-secondary);
+        font-size: 13.5px;
+        font-weight: 600;
+        border-radius: 8px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        transition: all 0.2s;
+      }
+
+      .btn-resume:hover:not(:disabled) {
+        border-color: var(--accent);
+        color: var(--text-main);
+      }
+
+      /* Round Badges */
+      .round-list {
+        display: flex;
+        gap: 8px;
+        overflow-x: auto;
+        padding-bottom: 4px;
+      }
+
+      .round-badge {
+        padding: 7px 14px;
+        background: var(--bg-input);
+        border: 1px solid var(--border-subtle);
+        border-radius: 6px;
+        font-size: 12.5px;
+        font-weight: 600;
+        cursor: pointer;
+        white-space: nowrap;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        transition: all 0.15s;
+      }
+
+      .round-badge.active {
+        border-color: var(--accent);
+        background: rgba(56, 189, 248, 0.1);
+        color: var(--accent);
+      }
+
+      /* Terminal Log Box */
+      .terminal-container {
+        background: var(--bg-terminal);
+        border: 1px solid var(--border-subtle);
+        border-radius: 8px;
+        padding: 12px;
+        font-family: var(--font-mono);
+        font-size: 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .terminal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding-bottom: 8px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      }
+
+      .terminal-title {
+        color: var(--text-muted);
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .terminal-clear-btn {
+        background: transparent;
+        border: none;
+        color: var(--text-muted);
+        font-size: 11px;
+        cursor: pointer;
+        font-family: inherit;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+      }
+
+      .terminal-clear-btn:hover {
+        color: var(--accent);
+      }
+
+      .terminal-body {
+        height: 140px;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        padding-right: 4px;
+      }
+
+      .log-row {
+        line-height: 1.5;
+        word-break: break-all;
+      }
+
+      .log-time {
+        color: var(--text-muted);
+        margin-right: 8px;
+      }
+
+      .log-info {
+        color: #38bdf8;
+      }
+      .log-success {
+        color: #34d399;
+      }
+      .log-warn {
+        color: #fbbf24;
+      }
+      .log-error {
+        color: #f87171;
+      }
+
+      /* Gate Grid */
+      .gates-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 12px;
+      }
+
+      .gate-card {
+        background: var(--bg-input);
+        border: 1px solid var(--border-subtle);
+        border-radius: 8px;
+        padding: 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .gate-name {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--text-secondary);
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .gate-status {
+        font-size: 12px;
+        font-family: var(--font-mono);
+        color: var(--text-muted);
+      }
+
+      .gate-card.pass {
+        border-color: rgba(16, 185, 129, 0.4);
+        background: rgba(16, 185, 129, 0.08);
+      }
+      .gate-card.pass .gate-status {
+        color: var(--success);
+      }
+
+      .gate-card.fail {
+        border-color: rgba(244, 63, 94, 0.4);
+        background: rgba(244, 63, 94, 0.08);
+      }
+      .gate-card.fail .gate-status {
+        color: var(--danger);
+      }
+
+      /* Token usage panel */
+      .source-tag {
+        font-size: 11px;
+        font-weight: 600;
+        font-family: var(--font-mono);
+        padding: 3px 9px;
+        border-radius: 999px;
+        border: 1px solid var(--border-strong);
+        color: var(--text-muted);
+        white-space: nowrap;
+      }
+      .source-tag.measured {
+        color: var(--success);
+        border-color: rgba(16, 185, 129, 0.45);
+        background: rgba(16, 185, 129, 0.08);
+      }
+      .source-tag.estimated {
+        color: var(--warning);
+        border-color: rgba(245, 158, 11, 0.45);
+        background: rgba(245, 158, 11, 0.08);
+      }
+
+      .token-stats {
+        display: grid;
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+        gap: 12px;
+        margin-bottom: 18px;
+      }
+
+      .stat-tile {
+        background: var(--bg-input);
+        border: 1px solid var(--border-subtle);
+        border-radius: 8px;
+        padding: 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        min-width: 0;
+      }
+
+      .stat-label {
+        font-size: 11.5px;
+        font-weight: 600;
+        color: var(--text-muted);
+      }
+
+      .stat-value {
+        font-family: var(--font-mono);
+        font-size: 20px;
+        font-weight: 600;
+        color: var(--text-main);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .stat-sub {
+        font-size: 11px;
+        color: var(--text-muted);
+        font-family: var(--font-mono);
+      }
+
+      .stat-tile.total {
+        border-color: rgba(167, 139, 250, 0.45);
+      }
+      .stat-tile.total .stat-value {
+        color: var(--accent-2);
+      }
+
+      .token-chart-wrap {
+        background: var(--bg-input);
+        border: 1px solid var(--border-subtle);
+        border-radius: 8px;
+        padding: 12px 12px 8px;
+        margin-bottom: 16px;
+      }
+
+      .chart-legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 16px;
+        font-size: 12px;
+        color: var(--text-secondary);
+        margin-bottom: 8px;
+      }
+      .chart-legend span {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .legend-swatch {
+        width: 10px;
+        height: 10px;
+        border-radius: 2px;
+        display: inline-block;
+      }
+      .legend-line {
+        width: 14px;
+        height: 0;
+        border-top: 2px solid var(--warning);
+        display: inline-block;
+      }
+
+      #tokenChart {
+        width: 100%;
+        height: auto;
+        display: block;
+      }
+      #tokenChart text {
+        font-family: var(--font-mono);
+        font-size: 10.5px;
+        fill: var(--text-muted);
+      }
+
+      .token-table-wrap {
+        max-height: 280px;
+        overflow: auto;
+        border: 1px solid var(--border-subtle);
+        border-radius: 8px;
+      }
+
+      table.token-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-family: var(--font-mono);
+        font-size: 12px;
+      }
+      .token-table th,
+      .token-table td {
+        padding: 8px 12px;
+        text-align: right;
+        white-space: nowrap;
+        border-bottom: 1px solid var(--border-subtle);
+      }
+      .token-table th:first-child,
+      .token-table td:first-child {
+        text-align: left;
+      }
+      .token-table th {
+        position: sticky;
+        top: 0;
+        background: var(--bg-surface-elevated);
+        color: var(--text-secondary);
+        font-weight: 600;
+        z-index: 1;
+      }
+      .token-table td {
+        color: var(--text-main);
+      }
+      .token-table tr.success-row td {
+        background: rgba(16, 185, 129, 0.08);
+      }
+      .token-table tfoot td {
+        position: sticky;
+        bottom: 0;
+        background: var(--bg-surface-elevated);
+        font-weight: 600;
+        color: var(--accent-2);
+        border-bottom: none;
+      }
+      .tag-est {
+        color: var(--warning);
+      }
+      .tag-mea {
+        color: var(--success);
+      }
+      .empty-note {
+        padding: 22px;
+        text-align: center;
+        color: var(--text-muted);
+        font-size: 13px;
+      }
+
+      .token-actions {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+        margin-top: 14px;
+      }
+
+      .token-note {
+        margin-top: 12px;
+        font-size: 11.5px;
+        line-height: 1.55;
+        color: var(--text-muted);
+      }
+
+      /* Code Diff Grid */
+      .code-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+      }
+
+      .code-box {
+        background: #080c14;
+        border: 1px solid var(--border-subtle);
+        border-radius: 8px;
+        overflow: hidden;
+      }
+
+      .code-header {
+        padding: 8px 14px;
+        background: var(--bg-surface-elevated);
+        border-bottom: 1px solid var(--border-subtle);
+        font-size: 12px;
+        font-weight: 600;
+        font-family: var(--font-mono);
+        color: var(--text-secondary);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .live-badge {
+        display: none;
+        align-items: center;
+        gap: 5px;
+        font-size: 10.5px;
+        color: var(--success);
+        background: rgba(16, 185, 129, 0.12);
+        border: 1px solid rgba(16, 185, 129, 0.35);
+        padding: 2px 7px;
+        border-radius: 999px;
+      }
+
+      .live-badge.streaming {
+        display: inline-flex;
+      }
+
+      .btn-download-summary {
+        width: 100%;
+        margin-top: 14px;
+        padding: 10px 16px;
+        background: rgba(56, 189, 248, 0.08);
+        border: 1px solid rgba(56, 189, 248, 0.3);
+        color: var(--accent);
+        font-size: 13.5px;
+        font-weight: 600;
+        font-family: inherit;
+        border-radius: 8px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        letter-spacing: 0.2px;
+        transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+      }
+
+      .btn-download-summary:hover:not(:disabled) {
+        background: linear-gradient(
+          135deg,
+          rgba(2, 132, 199, 0.25),
+          rgba(56, 189, 248, 0.15)
+        );
+        border-color: var(--accent);
+        color: #ffffff;
+        transform: translateY(-1px);
+        box-shadow: 0 4px 14px rgba(56, 189, 248, 0.2);
+      }
+
+      .btn-download-summary:active:not(:disabled) {
+        transform: translateY(0);
+      }
+
+      .btn-download-summary:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+        border-color: var(--border-subtle);
+        background: var(--bg-surface-elevated);
+        color: var(--text-muted);
+        transform: none;
+        box-shadow: none;
+      }
+
+      .token-actions .btn-download-summary,
+      .code-actions .btn-download-summary {
+        margin-top: 0;
+      }
+
+      .round-download-btn {
+        margin-left: 6px;
+        padding: 3px 7px;
+        background: rgba(255, 255, 255, 0.06);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        color: var(--text-secondary);
+        font-size: 11px;
+        font-weight: 500;
+        font-family: var(--font-mono);
+        border-radius: 4px;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        transition: all 0.15s ease;
+      }
+
+      .round-download-btn:hover {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: #090d16;
+      }
+
+      .code-actions {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+        margin-top: 16px;
+      }
+
+      .code-actions-note {
+        grid-column: 1 / -1;
+        font-size: 11.5px;
+        line-height: 1.55;
+        color: var(--text-muted);
+      }
+
+      pre {
+        margin: 0;
+        padding: 14px;
+        min-height: 220px;
+        max-height: 360px;
+        overflow: auto;
+        font-family: var(--font-mono);
+        font-size: 12.5px;
+        line-height: 1.6;
+        color: #e2e8f0;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+
+      .icon-sm {
+        width: 14px;
+        height: 14px;
+        stroke-width: 2.2;
+      }
+      .icon-md {
+        width: 16px;
+        height: 16px;
+        stroke-width: 2;
+      }
+
+      @media (max-width: 1280px) {
+        .token-stats {
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+      }
+      @media (max-width: 1100px) {
+        .workspace {
+          grid-template-columns: 1fr;
+        }
+      }
+      @media (max-width: 640px) {
+        .token-stats {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+        .token-pill {
+          display: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Top Navigation -->
+    <nav class="navbar">
+      <div class="brand">
+        <span class="brand-badge">
+          <i data-lucide="shield-check" class="icon-md"></i> DySec
+        </span>
+        <span class="brand-title"
+          >Adversarial Package Evaluation Dashboard</span
+        >
+      </div>
+      <div class="nav-right">
+        <div class="token-pill" title="Total LLM tokens for the current job">
+          <i data-lucide="coins" class="icon-sm"></i>
+          Tokens <b id="navTokenTotal">0</b>
+        </div>
+        <div class="status-pill">
+          <div id="statusDot" class="status-dot"></div>
+          <i data-lucide="activity" class="icon-sm"></i>
+          <span id="globalStatus">INITIALIZING...</span>
+        </div>
+      </div>
+    </nav>
+
+    <!-- Main Workspace -->
+    <div class="workspace">
+      <!-- Left Controls Pane -->
+      <div class="pane">
+        <!-- Target Selection -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">
+              <i data-lucide="package-search" class="icon-md"></i> 1. Target
+              Package
+            </div>
+          </div>
+          <div class="card-body">
+            <!-- Linux-only Package Filter -->
+            <label class="filter-checkbox" for="linuxOnlyFilter">
+              <input
+                id="linuxOnlyFilter"
+                type="checkbox"
+                checked
+                onchange="
+                  fetchMalRegistry(
+                    document.getElementById('searchPackage').value.trim(),
+                  )
+                "
+              />
+              <span>Linux-compatible packages only (DySec eBPF)</span>
+            </label>
+
+            <label for="searchPackage">
+              <i data-lucide="search" class="icon-sm"></i> Search MalRegistry
+              Dataset
+            </label>
+            <input
+              id="searchPackage"
+              type="text"
+              placeholder="Filter by name or keyword..."
+              style="margin-bottom: 10px"
+            />
+
+            <label for="packageList">
+              <i data-lucide="folder-git-2" class="icon-sm"></i> Select Package
+            </label>
+            <select
+              id="packageList"
+              onchange="handlePackageSelect()"
+              style="margin-bottom: 12px"
+            >
+              <option value="">Fetching packages...</option>
+            </select>
+
+            <div id="selectedPkgCard" class="selected-package-box">
+              <div class="pkg-title">
+                <i data-lucide="archive" class="icon-md"></i>
+                <span id="viewPkgName">No Package Selected</span>
+              </div>
+              <div class="pkg-meta" id="viewPkgMeta">
+                <i data-lucide="tag" class="icon-sm"></i> Version: — | Archive:
+                —
+              </div>
+            </div>
+
+            <div class="action-buttons">
+              <button
+                id="btnRunExperiment"
+                class="btn-run"
+                type="button"
+                onclick="startPipeline()"
+              >
+                <i data-lucide="play" class="icon-md"></i> Run
+              </button>
+              <button
+                id="btnStopExperiment"
+                class="btn-stop"
+                type="button"
+                onclick="stopPipeline()"
+                disabled
+              >
+                <i data-lucide="square" class="icon-md"></i> Stop
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Strategy Options -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">
+              <i data-lucide="sliders" class="icon-md"></i> 2. Mutation Strategy
+            </div>
+          </div>
+          <div class="card-body">
+            <div style="display: flex; flex-direction: column; gap: 14px">
+              <div>
+                <label for="methodSelect">
+                  <i data-lucide="git-branch" class="icon-sm"></i> Mutation
+                  Method
+                </label>
+                <select id="methodSelect">
+                  <optgroup label="── Adaptive & Baseline Orchestration ──">
+                    <option value="proposed_feedback" selected>
+                      proposed_feedback (Adaptive with DySec)
+                    </option>
+                    <option value="proposed">
+                      proposed (Structural, no feedback)
+                    </option>
+                    <option value="function_level">
+                      function_level (AST Target Baseline)
+                    </option>
+                    <option value="random">random (Uniform Baseline)</option>
+                  </optgroup>
+
+                  <optgroup
+                    label="── Dedicated Evasion Strategies (Ablation Study) ──"
+                  >
+                    <option value="strategy_substitution">
+                      instruction_substitution (API Indirection & Wrappers)
+                    </option>
+                    <option value="strategy_flattening">
+                      control_flow_flattening (State Machine Dispatcher)
+                    </option>
+                    <option value="strategy_encryption">
+                      polymorphic_encryption (String & Constant Masking)
+                    </option>
+                    <option value="strategy_opaque">
+                      opaque_predicates (Branch Complexity & Dead Code)
+                    </option>
+                    <option value="proposed_heavy">
+                      proposed_heavy (Multi-layer Obfuscation Combo)
+                    </option>
+                  </optgroup>
+                </select>
+              </div>
+              <div class="grid-2">
+                <div>
+                  <label for="maxRounds">
+                    <i data-lucide="repeat" class="icon-sm"></i> Max Rounds
+                  </label>
+                  <input id="maxRounds" type="number" value="15" readonly />
+                </div>
+                <div>
+                  <label for="llmEngine">
+                    <i data-lucide="cpu" class="icon-sm"></i> Engine
+                  </label>
+                  <input id="llmEngine" value="Huihui-Qwen3-14B" readonly />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Feedback Sync -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">
+              <i data-lucide="cloud-sync" class="icon-md"></i> 3. DySec.io
+              External Sync
+            </div>
+          </div>
+          <div class="card-body">
+            <button
+              id="btnResume"
+              class="btn-resume"
+              type="button"
+              onclick="resumePipeline()"
+            >
+              <i data-lucide="refresh-cw" class="icon-sm"></i> Apply Feedback &
+              Resume (--resume)
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right Results Pane -->
+      <div class="pane">
+        <!-- Live Terminal Console Log -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">
+              <i data-lucide="terminal" class="icon-md"></i> Execution Console &
+              Live Output
+            </div>
+            <span
+              id="currentRoundIndicator"
+              style="
+                font-size: 12px;
+                font-weight: 600;
+                color: var(--accent);
+                display: flex;
+                align-items: center;
+                gap: 4px;
+              "
+            >
+              <i data-lucide="clock" class="icon-sm"></i> Round: Idle
+            </span>
+          </div>
+          <div class="card-body" style="padding-bottom: 14px">
+            <div class="terminal-container">
+              <div class="terminal-header">
+                <span class="terminal-title">
+                  <i data-lucide="code" class="icon-sm"></i> LIVE PIPELINE
+                  STREAM
+                </span>
+                <button
+                  class="terminal-clear-btn"
+                  type="button"
+                  onclick="clearLogs()"
+                >
+                  <i data-lucide="trash-2" class="icon-sm"></i> Clear Log
+                </button>
+              </div>
+              <div class="terminal-body" id="terminalLogs">
+                <div class="log-row">
+                  <span class="log-time">[System]</span>
+                  <span class="log-info"
+                    >Dashboard initialized. Select a Linux-compatible package
+                    and click Run.</span
+                  >
+                </div>
+              </div>
+            </div>
+            <div style="margin-top: 14px">
+              <div class="round-list" id="roundListContainer">
+                <div class="round-badge active">
+                  <i data-lucide="info" class="icon-sm"></i>
+                  No active rounds
+                </div>
+              </div>
+
+              <button
+                id="btnDownloadSummary"
+                class="btn-download-summary"
+                type="button"
+                onclick="downloadSummaryReport()"
+              >
+                <i data-lucide="download" class="icon-sm"></i>
+                <span>Download Evaluation Summary</span>
+                <span
+                  style="
+                    font-size: 11px;
+                    opacity: 0.7;
+                    font-family: var(--font-mono);
+                  "
+                  >(JSON)</span
+                >
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Target Code Inspection (Moved higher for immediate visibility while streaming) -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">
+              <i data-lucide="file-diff" class="icon-md"></i> Code Diff & Target
+              Region Inspection
+            </div>
+            <span id="liveStreamBadge" class="live-badge">
+              <i data-lucide="radio" class="icon-sm"></i> LIVE LLM STREAMING
+            </span>
+          </div>
+          <div class="card-body">
+            <div class="code-grid">
+              <div class="code-box">
+                <div class="code-header">
+                  <span style="display: flex; align-items: center; gap: 6px">
+                    <i data-lucide="file-text" class="icon-sm"></i>
+                    target_original.py
+                  </span>
+                </div>
+                <pre id="codeOriginal">// Original target snippet</pre>
+              </div>
+              <div class="code-box">
+                <div class="code-header">
+                  <span style="display: flex; align-items: center; gap: 6px">
+                    <i data-lucide="sparkles" class="icon-sm"></i>
+                    generated_code.py
+                  </span>
+                </div>
+                <pre id="codeMutated">// Mutated variant snippet</pre>
+              </div>
+            </div>
+
+            <div class="code-actions">
+              <button
+                id="btnDownloadPackage"
+                class="btn-download-summary"
+                type="button"
+                onclick="downloadPackage()"
+                disabled
+              >
+                <i data-lucide="package-open" class="icon-sm"></i>
+                <span>Download generated package</span>
+                <span
+                  id="pkgBtnRound"
+                  style="
+                    font-size: 11px;
+                    opacity: 0.7;
+                    font-family: var(--font-mono);
+                  "
+                  >(.tar.gz)</span
+                >
+              </button>
+              <button
+                id="btnDownloadFile"
+                class="btn-download-summary"
+                type="button"
+                onclick="downloadMutatedFile()"
+                disabled
+              >
+                <i data-lucide="file-down" class="icon-sm"></i>
+                <span>Download mutated file</span>
+                <span
+                  id="fileBtnRound"
+                  style="
+                    font-size: 11px;
+                    opacity: 0.7;
+                    font-family: var(--font-mono);
+                  "
+                  >(.py)</span
+                >
+              </button>
+              <p class="code-actions-note" id="codeActionsNote">
+                Downloads apply to the round currently shown. Click a round
+                badge to inspect a specific round; otherwise live output is
+                followed.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Sequential Validation Gates -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">
+              <i data-lucide="shield-alert" class="icon-md"></i> Sequential
+              Validation Gates
+            </div>
+          </div>
+          <div class="card-body">
+            <div class="gates-grid">
+              <div class="gate-card" id="gateTargetScope">
+                <span class="gate-name">
+                  <i data-lucide="target" class="icon-sm"></i> 1. Target Scope
+                </span>
+                <span class="gate-status">PENDING</span>
+              </div>
+              <div class="gate-card" id="gateReconstruct">
+                <span class="gate-name">
+                  <i data-lucide="file-code" class="icon-sm"></i> 2. Reconstruct
+                  Source
+                </span>
+                <span class="gate-status">PENDING</span>
+              </div>
+              <div class="gate-card" id="gateSyntax">
+                <span class="gate-name">
+                  <i data-lucide="braces" class="icon-sm"></i> 3. Full Syntax
+                  AST
+                </span>
+                <span class="gate-status">PENDING</span>
+              </div>
+              <div class="gate-card" id="gateSourceGuard">
+                <span class="gate-name">
+                  <i data-lucide="shield" class="icon-sm"></i> 4. Source Guard
+                </span>
+                <span class="gate-status">PENDING</span>
+              </div>
+              <div class="gate-card" id="gateDiversity">
+                <span class="gate-name">
+                  <i data-lucide="git-fork" class="icon-sm"></i> 5. Diversity
+                  Gate
+                </span>
+                <span class="gate-status">PENDING</span>
+              </div>
+              <div class="gate-card" id="gateInstall">
+                <span class="gate-name">
+                  <i data-lucide="box" class="icon-sm"></i> 6. Docker Install
+                </span>
+                <span class="gate-status">PENDING</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- LLM Token Usage -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">
+              <i data-lucide="coins" class="icon-md"></i> LLM Token Usage
+            </div>
+            <span id="tokenSourceTag" class="source-tag">NO DATA</span>
+          </div>
+          <div class="card-body">
+            <div class="token-stats">
+              <div class="stat-tile total">
+                <span class="stat-label">Total tokens</span>
+                <span class="stat-value" id="statTotal">—</span>
+                <span class="stat-sub" id="statTotalSub"
+                  >prompt + completion</span
+                >
+              </div>
+              <div class="stat-tile">
+                <span class="stat-label">Prompt (input)</span>
+                <span class="stat-value" id="statPrompt">—</span>
+                <span class="stat-sub" id="statPromptSub">&nbsp;</span>
+              </div>
+              <div class="stat-tile">
+                <span class="stat-label">Completion (output)</span>
+                <span class="stat-value" id="statCompletion">—</span>
+                <span class="stat-sub" id="statCompletionSub">&nbsp;</span>
+              </div>
+              <div class="stat-tile">
+                <span class="stat-label">Avg tokens / round</span>
+                <span class="stat-value" id="statAvg">—</span>
+                <span class="stat-sub" id="statAvgSub">&nbsp;</span>
+              </div>
+              <div class="stat-tile">
+                <span class="stat-label">Throughput</span>
+                <span class="stat-value" id="statSpeed">—</span>
+                <span class="stat-sub" id="statSpeedSub">completion tok/s</span>
+              </div>
+              <div class="stat-tile">
+                <span class="stat-label">Tokens to success</span>
+                <span class="stat-value" id="statToSuccess">—</span>
+                <span class="stat-sub" id="statToSuccessSub"
+                  >not reached yet</span
+                >
+              </div>
+            </div>
+
+            <div class="token-chart-wrap">
+              <div class="chart-legend">
+                <span>
+                  <i
+                    class="legend-swatch"
+                    style="background: var(--accent)"
+                  ></i>
+                  Prompt
+                </span>
+                <span>
+                  <i
+                    class="legend-swatch"
+                    style="background: var(--accent-2)"
+                  ></i>
+                  Completion
+                </span>
+                <span><i class="legend-line"></i> Cumulative (right axis)</span>
+              </div>
+              <svg
+                id="tokenChart"
+                viewBox="0 0 720 220"
+                role="img"
+                aria-label="Token usage per round"
+              ></svg>
+            </div>
+
+            <div class="token-table-wrap">
+              <table class="token-table">
+                <thead>
+                  <tr>
+                    <th>Round</th>
+                    <th>Prompt</th>
+                    <th>Completion</th>
+                    <th>Total</th>
+                    <th>Cumulative</th>
+                    <th>Calls</th>
+                    <th>Latency (s)</th>
+                    <th>tok/s</th>
+                    <th>Source</th>
+                  </tr>
+                </thead>
+                <tbody id="tokenTableBody"></tbody>
+                <tfoot id="tokenTableFoot"></tfoot>
+              </table>
+              <div class="empty-note" id="tokenEmpty">
+                No token data yet. Run the pipeline to start collecting.
+              </div>
+            </div>
+
+            <div class="token-actions">
+              <button
+                id="btnTokenCsv"
+                class="btn-download-summary"
+                type="button"
+                onclick="downloadTokenCsv()"
+                disabled
+              >
+                <i data-lucide="file-spreadsheet" class="icon-sm"></i>
+                <span>Export token log</span>
+                <span
+                  style="
+                    font-size: 11px;
+                    opacity: 0.7;
+                    font-family: var(--font-mono);
+                  "
+                  >(CSV)</span
+                >
+              </button>
+              <button
+                id="btnTokenJson"
+                class="btn-download-summary"
+                type="button"
+                onclick="downloadTokenJson()"
+                disabled
+              >
+                <i data-lucide="file-json" class="icon-sm"></i>
+                <span>Export token log</span>
+                <span
+                  style="
+                    font-size: 11px;
+                    opacity: 0.7;
+                    font-family: var(--font-mono);
+                  "
+                  >(JSON)</span
+                >
+              </button>
+            </div>
+            <p class="token-note" id="tokenNote">
+              <b>Measured</b> = <code>usage</code> values returned by the
+              backend / LLM server. <b>Estimated</b> = approximation (≈
+              characters / 4) from <code>target_code</code> and
+              <code>mutated_code</code>.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Script Logic -->
+    <script>
+      function downloadSummaryReport() {
+        window.location.href = "/api/reports/summary";
+      }
+
+      let rawPackages = [];
+      let pollTimer = null;
+      let packageSearchRequestId = 0;
+      let packageSearchController = null;
+      let lastLoggedMessage = "";
+      let lastJob = null;
+      let pinnedRound = null; // null = follow live round
+      let tokenState = { rows: [], totals: null, successRound: null };
+
+      const GATE_MAP = {
+        target_scope: "gateTargetScope",
+        generation_scope: "gateTargetScope",
+        reconstruct: "gateReconstruct",
+        source_reconstruction: "gateReconstruct",
+        syntax: "gateSyntax",
+        full_syntax: "gateSyntax",
+        source_guard: "gateSourceGuard",
+        diversity: "gateDiversity",
+        installation: "gateInstall",
+        install: "gateInstall",
+        docker: "gateInstall",
+      };
+
+      const GATE_KEYS = [
+        "generation_scope_pass",
+        "source_reconstruction",
+        "syntax_pass",
+        "source_guard_pass",
+        "diversity_pass",
+        "installation_pass",
+      ];
+
+      function refreshIcons() {
+        if (window.lucide) {
+          lucide.createIcons();
+        }
+      }
+
+      function appendLog(message, type = "info") {
+        if (!message || message === lastLoggedMessage) return;
+        lastLoggedMessage = message;
+
+        const terminal = document.getElementById("terminalLogs");
+        if (!terminal) return;
+
+        const now = new Date();
+        const timeStr = `[${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}:${String(now.getSeconds()).padStart(2, "0")}]`;
+
+        const row = document.createElement("div");
+        row.className = "log-row";
+
+        const timeSpan = document.createElement("span");
+        timeSpan.className = "log-time";
+        timeSpan.textContent = timeStr;
+
+        const msgSpan = document.createElement("span");
+        msgSpan.className = `log-${type}`;
+        msgSpan.textContent = message;
+
+        row.appendChild(timeSpan);
+        row.appendChild(msgSpan);
+        terminal.appendChild(row);
+
+        terminal.scrollTop = terminal.scrollHeight;
+      }
+
+      function clearLogs() {
+        const terminal = document.getElementById("terminalLogs");
+        if (terminal) terminal.innerHTML = "";
+        lastLoggedMessage = "";
+      }
+
+      function setGlobalStatus(message, isRunning = false, isStopped = false) {
+        const el = document.getElementById("globalStatus");
+        const dot = document.getElementById("statusDot");
+        if (el) el.textContent = message;
+        if (dot) {
+          dot.classList.remove("active", "stopped");
+          if (isRunning) dot.classList.add("active");
+          else if (isStopped) dot.classList.add("stopped");
+        }
+      }
+
+      function handlePackageSelect() {
+        const selected = getSelectedPackage();
+        const nameEl = document.getElementById("viewPkgName");
+        const metaEl = document.getElementById("viewPkgMeta");
+
+        if (selected) {
+          const pkgName = selected.package || selected.name || "Unknown";
+          nameEl.textContent = pkgName;
+          const version = selected.version || "1.0";
+          const archive =
+            selected.filename || selected.archive || `${pkgName}.tar.gz`;
+          metaEl.innerHTML = `<i data-lucide="tag" class="icon-sm"></i> Version: ${version} | Archive: ${archive}`;
+          appendLog(`Selected package: ${pkgName} (v${version})`, "info");
+        } else {
+          nameEl.textContent = "No Package Selected";
+          metaEl.innerHTML = `<i data-lucide="tag" class="icon-sm"></i> Version: — | Archive: —`;
+        }
+        refreshIcons();
+      }
+
+      async function fetchMalRegistry(query = "") {
+        const requestId = ++packageSearchRequestId;
+        if (packageSearchController) packageSearchController.abort();
+
+        const controller = new AbortController();
+        packageSearchController = controller;
+
+        const select = document.getElementById("packageList");
+        const btnRun = document.getElementById("btnRunExperiment");
+        const linuxOnly =
+          document.getElementById("linuxOnlyFilter")?.checked ?? true;
+
+        try {
+          setGlobalStatus(query ? "Searching..." : "Loading packages...");
+          const url = `/api/malregistry/packages?q=${encodeURIComponent(query)}&linux_only=${linuxOnly}&limit=300&_t=${Date.now()}`;
+          const res = await fetch(url, { signal: controller.signal });
+
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const data = await res.json();
+          if (requestId !== packageSearchRequestId) return;
+
+          rawPackages = data.items || data.packages || [];
+          select.innerHTML = "";
+
+          if (rawPackages.length === 0) {
+            select.innerHTML =
+              '<option value="">No matching packages found</option>';
+            setGlobalStatus("No packages found");
+            btnRun.disabled = true;
+            handlePackageSelect();
+            return;
+          }
+
+          rawPackages.forEach((item, idx) => {
+            const opt = document.createElement("option");
+            opt.value = String(idx);
+            const name = item.package || item.name || "Unknown";
+            const version = item.version || "1.0";
+            opt.textContent = `${name} (v${version})`;
+            select.appendChild(opt);
+          });
+
+          select.selectedIndex = 0;
+          btnRun.disabled = false;
+          handlePackageSelect();
+          setGlobalStatus(`Ready (${rawPackages.length} packages)`);
+        } catch (err) {
+          if (err.name === "AbortError") return;
+          if (requestId !== packageSearchRequestId) return;
+          select.innerHTML =
+            '<option value="">Unable to load packages</option>';
+          setGlobalStatus("Error loading packages");
+          btnRun.disabled = true;
+          handlePackageSelect();
+        }
+      }
+
+      function setGate(gateId, state, label) {
+        const el = document.getElementById(gateId);
+        if (!el) return;
+        el.classList.remove("pass", "fail");
+        if (state === true) {
+          el.classList.add("pass");
+          el.querySelector(".gate-status").textContent = label || "PASSED";
+        } else if (state === false) {
+          el.classList.add("fail");
+          el.querySelector(".gate-status").textContent = label || "FAILED";
+        } else {
+          el.querySelector(".gate-status").textContent = label || "PENDING";
+        }
+      }
+
+      function resetGatesUI() {
+        Object.values(GATE_MAP).forEach((id) => setGate(id, null));
+      }
+
+      function updateGatesFromHistory(history) {
+        if (!history) {
+          resetGatesUI();
+          return;
+        }
+        const checks = [
+          {
+            id: "gateTargetScope",
+            value: history.generation_scope_pass,
+            passLabel: "ACCEPTED",
+            failLabel: "REJECTED",
+          },
+          {
+            id: "gateReconstruct",
+            value: history.source_reconstruction,
+            passLabel: "SUCCESS",
+            failLabel: "FAILED",
+          },
+          {
+            id: "gateSyntax",
+            value: history.syntax_pass,
+            passLabel: "SYNTAX VALID",
+            failLabel: "SYNTAX INVALID",
+          },
+          {
+            id: "gateSourceGuard",
+            value: history.source_guard_pass,
+            passLabel: "ACCEPTED",
+            failLabel: "REJECTED",
+          },
+          {
+            id: "gateDiversity",
+            value: history.diversity_pass,
+            passLabel: "ACCEPTED",
+            failLabel: "REJECTED",
+          },
+          {
+            id: "gateInstall",
+            value: history.installation_pass,
+            passLabel: "PASSED",
+            failLabel: "FAILED",
+          },
+        ];
+        checks.forEach((c) => {
+          const state = typeof c.value === "boolean" ? c.value : null;
+          const label =
+            state === true
+              ? c.passLabel
+              : state === false
+                ? c.failLabel
+                : "PENDING";
+          setGate(c.id, state, label);
+        });
+      }
+
+      /* ================= Token usage ================= */
+
+      const fmtInt = (n) =>
+        n === null || n === undefined || !Number.isFinite(n)
+          ? "—"
+          : Math.round(n).toLocaleString("en-US");
+
+      function pickNum(...vals) {
+        for (const v of vals) {
+          if (v === undefined || v === null || v === "") continue;
+          const n = Number(v);
+          if (Number.isFinite(n)) return n;
+        }
+        return null;
+      }
+
+      function normalizeUsage(rec) {
+        const nested = [
+          rec.token_usage,
+          rec.usage,
+          rec.llm_usage,
+          rec.tokens,
+        ].find((x) => x && typeof x === "object");
+        const u = nested || rec;
+
+        const prompt = pickNum(
+          u.prompt_tokens,
+          u.input_tokens,
+          u.prompt_eval_count,
+        );
+        const completion = pickNum(
+          u.completion_tokens,
+          u.output_tokens,
+          u.eval_count,
+        );
+        let total = pickNum(u.total_tokens);
+
+        if (prompt !== null || completion !== null || total !== null) {
+          const p = prompt ?? 0;
+          const c = completion ?? 0;
+          if (total === null) total = p + c;
+          return {
+            prompt: p,
+            completion: c,
+            total,
+            latency: pickNum(
+              u.latency_s,
+              u.latency,
+              u.elapsed_s,
+              u.duration_s,
+              rec.llm_latency_seconds,
+              rec.llm_latency_s,
+            ),
+            calls: pickNum(u.calls, u.num_calls, u.llm_calls) ?? 1,
+            estimated: false,
+          };
+        }
+
+        const p = Math.ceil((rec.target_code || "").length / 4);
+        const c = Math.ceil((rec.mutated_code || "").length / 4);
+        if (p === 0 && c === 0) return null;
+        return {
+          prompt: p,
+          completion: c,
+          total: p + c,
+          latency: pickNum(rec.llm_latency_seconds, rec.llm_latency_s),
+          calls: 1,
+          estimated: true,
+        };
+      }
+
+      function isRoundSuccess(rec) {
+        if (rec.status === "SUCCESS" || rec.success === true) return true;
+        return GATE_KEYS.every((k) => rec[k] === true);
+      }
+
+      function computeTokenState(job) {
+        const history = job?.result?.history || [];
+        const rows = [];
+        let cum = 0;
+        let successRound = null;
+
+        history.forEach((rec, i) => {
+          const u = normalizeUsage(rec);
+          if (!u) return;
+          cum += u.total;
+          const round = Number(rec.round) || i + 1;
+          const tps =
+            u.latency && u.latency > 0 ? u.completion / u.latency : null;
+          const success = isRoundSuccess(rec);
+          if (success && successRound === null) successRound = round;
+          rows.push({ round, ...u, cumulative: cum, tps, success });
+        });
+
+        const sum = (key) => rows.reduce((a, r) => a + (r[key] || 0), 0);
+        const totals = {
+          prompt: sum("prompt"),
+          completion: sum("completion"),
+          total: sum("total"),
+          calls: sum("calls"),
+          latency: rows.some((r) => r.latency !== null)
+            ? rows.reduce((a, r) => a + (r.latency || 0), 0)
+            : null,
+        };
+
+        const estCount = rows.filter((r) => r.estimated).length;
+        let source = "none";
+        if (rows.length) {
+          source =
+            estCount === 0
+              ? "measured"
+              : estCount === rows.length
+                ? "estimated"
+                : "mixed";
+        }
+
+        const successRow = rows.find((r) => r.round === successRound);
+        return {
+          rows,
+          totals,
+          source,
+          successRound,
+          tokensToSuccess: successRow ? successRow.cumulative : null,
+        };
+      }
+
+      function fmtShort(n) {
+        if (n >= 1e6) return (n / 1e6).toFixed(1) + "M";
+        if (n >= 1e3) return (n / 1e3).toFixed(n >= 1e4 ? 0 : 1) + "k";
+        return String(Math.round(n));
+      }
+
+      function renderTokenChart(rows) {
+        const svg = document.getElementById("tokenChart");
+        const W = 720,
+          H = 220,
+          m = { t: 12, r: 52, b: 26, l: 52 };
+        const iw = W - m.l - m.r,
+          ih = H - m.t - m.b;
+
+        if (!rows.length) {
+          svg.innerHTML = `<text x="${W / 2}" y="${H / 2}" text-anchor="middle">No data yet</text>`;
+          return;
+        }
+
+        const maxBar = Math.max(...rows.map((r) => r.total), 1);
+        const maxCum = Math.max(...rows.map((r) => r.cumulative), 1);
+        const band = iw / rows.length;
+        const bw = Math.min(band * 0.62, 44);
+        const y = (v, max) => m.t + ih - (v / max) * ih;
+
+        let out = "";
+        for (let i = 0; i <= 4; i++) {
+          const gy = m.t + (ih * i) / 4;
+          const lv = maxBar * (1 - i / 4);
+          const rv = maxCum * (1 - i / 4);
+          out += `<line x1="${m.l}" x2="${W - m.r}" y1="${gy}" y2="${gy}" stroke="#1e293b" />`;
+          out += `<text x="${m.l - 8}" y="${gy + 3}" text-anchor="end">${fmtShort(lv)}</text>`;
+          out += `<text x="${W - m.r + 8}" y="${gy + 3}" text-anchor="start">${fmtShort(rv)}</text>`;
+        }
+
+        const linePts = [];
+        rows.forEach((r, i) => {
+          const cx = m.l + band * i + band / 2;
+          const x = cx - bw / 2;
+          const hp = (r.prompt / maxBar) * ih;
+          const hc = (r.completion / maxBar) * ih;
+          const yc = m.t + ih - hc;
+          const yp = yc - hp;
+          const tip = `Round ${r.round}: prompt ${fmtInt(r.prompt)}, completion ${fmtInt(r.completion)}, total ${fmtInt(r.total)}`;
+          out += `<g><title>${tip}</title>`;
+          out += `<rect x="${x}" y="${yc}" width="${bw}" height="${hc}" fill="#a78bfa" rx="2" />`;
+          out += `<rect x="${x}" y="${yp}" width="${bw}" height="${hp}" fill="#38bdf8" rx="2" />`;
+          out += `</g>`;
+          out += `<text x="${cx}" y="${H - 8}" text-anchor="middle">${r.round}</text>`;
+          if (r.success) {
+            out += `<circle cx="${cx}" cy="${yp - 8}" r="4" fill="#10b981"><title>Round ${r.round}: passed</title></circle>`;
+          }
+          linePts.push([cx, y(r.cumulative, maxCum)]);
+        });
+
+        out += `<polyline fill="none" stroke="#f59e0b" stroke-width="2" points="${linePts.map((p) => p.join(",")).join(" ")}" />`;
+        linePts.forEach(([px, py]) => {
+          out += `<circle cx="${px}" cy="${py}" r="3" fill="#f59e0b" />`;
+        });
+
+        svg.innerHTML = out;
+      }
+
+      function renderTokenPanel(job) {
+        const st = computeTokenState(job);
+        tokenState = st;
+        const { rows, totals } = st;
+        const has = rows.length > 0;
+
+        const tag = document.getElementById("tokenSourceTag");
+        tag.className = "source-tag";
+        if (st.source === "measured") {
+          tag.textContent = "MEASURED";
+          tag.classList.add("measured");
+        } else if (st.source === "estimated") {
+          tag.textContent = "ESTIMATED";
+          tag.classList.add("estimated");
+        } else if (st.source === "mixed") {
+          tag.textContent = "MIXED";
+          tag.classList.add("estimated");
+        } else {
+          tag.textContent = "NO DATA";
+        }
+
+        const set = (id, v) => (document.getElementById(id).textContent = v);
+        const approx = st.source === "estimated" ? "≈ " : "";
+
+        set("navTokenTotal", has ? approx + fmtInt(totals.total) : "0");
+        set("statTotal", has ? approx + fmtInt(totals.total) : "—");
+        set("statPrompt", has ? approx + fmtInt(totals.prompt) : "—");
+        set("statCompletion", has ? approx + fmtInt(totals.completion) : "—");
+
+        const pct = (x) =>
+          totals.total > 0 ? ((x / totals.total) * 100).toFixed(1) + "%" : " ";
+        set("statPromptSub", has ? pct(totals.prompt) + " of total" : " ");
+        set(
+          "statCompletionSub",
+          has ? pct(totals.completion) + " of total" : " ",
+        );
+
+        set("statAvg", has ? approx + fmtInt(totals.total / rows.length) : "—");
+        set("statAvgSub", has ? `${rows.length} round(s)` : " ");
+
+        if (has && totals.latency && totals.latency > 0) {
+          set("statSpeed", (totals.completion / totals.latency).toFixed(1));
+          set(
+            "statSpeedSub",
+            `completion tok/s · ${totals.latency.toFixed(1)}s`,
+          );
+        } else {
+          set("statSpeed", "—");
+          set("statSpeedSub", "requires latency_s field");
+        }
+
+        if (st.tokensToSuccess !== null) {
+          set("statToSuccess", approx + fmtInt(st.tokensToSuccess));
+          set("statToSuccessSub", `reached at round ${st.successRound}`);
+        } else {
+          set("statToSuccess", "—");
+          set(
+            "statToSuccessSub",
+            has ? "no round passed all gates" : "not reached yet",
+          );
+        }
+
+        renderTokenChart(rows);
+
+        const body = document.getElementById("tokenTableBody");
+        const foot = document.getElementById("tokenTableFoot");
+        const empty = document.getElementById("tokenEmpty");
+        body.innerHTML = "";
+        foot.innerHTML = "";
+        empty.style.display = has ? "none" : "block";
+
+        rows.forEach((r) => {
+          const tr = document.createElement("tr");
+          if (r.success) tr.className = "success-row";
+          tr.innerHTML = `
+            <td>Round ${String(r.round).padStart(2, "0")}</td>
+            <td>${fmtInt(r.prompt)}</td>
+            <td>${fmtInt(r.completion)}</td>
+            <td>${fmtInt(r.total)}</td>
+            <td>${fmtInt(r.cumulative)}</td>
+            <td>${fmtInt(r.calls)}</td>
+            <td>${r.latency !== null ? r.latency.toFixed(2) : "—"}</td>
+            <td>${r.tps !== null ? r.tps.toFixed(1) : "—"}</td>
+            <td class="${r.estimated ? "tag-est" : "tag-mea"}">${r.estimated ? "estimated" : "measured"}</td>`;
+          body.appendChild(tr);
+        });
+
+        if (has) {
+          const tr = document.createElement("tr");
+          tr.innerHTML = `
+            <td>Total</td>
+            <td>${fmtInt(totals.prompt)}</td>
+            <td>${fmtInt(totals.completion)}</td>
+            <td>${fmtInt(totals.total)}</td>
+            <td></td>
+            <td>${fmtInt(totals.calls)}</td>
+            <td>${totals.latency !== null ? totals.latency.toFixed(2) : "—"}</td>
+            <td>${totals.latency ? (totals.completion / totals.latency).toFixed(1) : "—"}</td>
+            <td></td>`;
+          foot.appendChild(tr);
+        }
+
+        document.getElementById("btnTokenCsv").disabled = !has;
+        document.getElementById("btnTokenJson").disabled = !has;
+      }
+
+      function tokenContext() {
+        const sel = getSelectedPackage();
+        const job = lastJob || {};
+        return {
+          package: job.package || sel?.package || sel?.name || "",
+          version: job.version || sel?.version || "",
+          method: job.method || document.getElementById("methodSelect").value,
+          model: document.getElementById("llmEngine").value,
+          job_status: job.status || "",
+        };
+      }
+
+      function saveBlob(filename, blob) {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      }
+
+      function triggerDownload(filename, mime, content) {
+        saveBlob(filename, new Blob([content], { type: mime }));
+      }
+
+      function tokenFileStem() {
+        const ctx = tokenContext();
+        const safe = (s) => String(s || "na").replace(/[^a-zA-Z0-9._-]+/g, "_");
+        const ts = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+        return `tokens_${safe(ctx.package)}_${safe(ctx.method)}_${ts}`;
+      }
+
+      function downloadTokenCsv() {
+        if (!tokenState.rows.length) return;
+        const ctx = tokenContext();
+        const header = [
+          "package",
+          "version",
+          "method",
+          "model",
+          "round",
+          "prompt_tokens",
+          "completion_tokens",
+          "total_tokens",
+          "cumulative_tokens",
+          "llm_calls",
+          "latency_s",
+          "completion_tokens_per_s",
+          "all_gates_passed",
+          "source",
+        ];
+        const q = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+        const lines = [header.join(",")];
+        tokenState.rows.forEach((r) => {
+          lines.push(
+            [
+              q(ctx.package),
+              q(ctx.version),
+              q(ctx.method),
+              q(ctx.model),
+              r.round,
+              r.prompt,
+              r.completion,
+              r.total,
+              r.cumulative,
+              r.calls,
+              r.latency ?? "",
+              r.tps !== null ? r.tps.toFixed(3) : "",
+              r.success,
+              r.estimated ? "estimated" : "measured",
+            ].join(","),
+          );
+        });
+        triggerDownload(
+          `${tokenFileStem()}.csv`,
+          "text/csv;charset=utf-8",
+          lines.join("\n"),
+        );
+        appendLog("Token log exported (CSV).", "success");
+      }
+
+      function downloadTokenJson() {
+        if (!tokenState.rows.length) return;
+        const payload = {
+          ...tokenContext(),
+          exported_at: new Date().toISOString(),
+          data_source: tokenState.source,
+          totals: tokenState.totals,
+          rounds_to_success: tokenState.successRound,
+          tokens_to_success: tokenState.tokensToSuccess,
+          rounds: tokenState.rows,
+        };
+        triggerDownload(
+          `${tokenFileStem()}.json`,
+          "application/json",
+          JSON.stringify(payload, null, 2),
+        );
+        appendLog("Token log exported (JSON).", "success");
+      }
+
+      /* ================= Package & Code Inspection ================= */
+
+      function getViewedRound(history) {
+        const h = history || lastJob?.result?.history || [];
+        if (!h.length) return null;
+        if (
+          pinnedRound !== null &&
+          h.some((r) => Number(r.round) === pinnedRound)
+        ) {
+          return pinnedRound;
+        }
+        return Number(h[h.length - 1].round) || h.length;
+      }
+
+      function updatePackageButtons(history) {
+        const rounds = history || [];
+        const round = getViewedRound(rounds);
+        const rec =
+          round !== null
+            ? rounds.find((r) => Number(r.round) === Number(round))
+            : null;
+
+        const hasCode =
+          typeof rec?.mutated_code === "string" &&
+          rec.mutated_code.trim().length > 0;
+        const hasPackage =
+          rec?.artifact_available === true || Boolean(rec?.artifact);
+
+        const pkgBtn = document.getElementById("btnDownloadPackage");
+        const fileBtn = document.getElementById("btnDownloadFile");
+        if (!pkgBtn || !fileBtn) return;
+
+        pkgBtn.disabled = !hasPackage;
+        fileBtn.disabled = !hasCode;
+
+        document.getElementById("pkgBtnRound").textContent =
+          round != null ? `(Round ${round} · .tar.gz)` : "(.tar.gz)";
+        document.getElementById("fileBtnRound").textContent =
+          round != null ? `(Round ${round} · .py)` : "(.py)";
+      }
+
+      async function downloadPackage(round) {
+        const r = round ?? getViewedRound();
+        if (r === null || r === undefined) return;
+        const url = `/api/packages/round/${encodeURIComponent(r)}/download`;
+        appendLog(`Downloading generated package for round ${r}...`, "info");
+        try {
+          const res = await fetch(url);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const blob = await res.blob();
+          saveBlob(`package_round_${String(r).padStart(2, "0")}.tar.gz`, blob);
+          appendLog(`Package round ${r} downloaded.`, "success");
+        } catch (err) {
+          appendLog(`Package download failed: ${err.message}`, "error");
+        }
+      }
+
+      function downloadMutatedFile(round) {
+        const history = lastJob?.result?.history || [];
+        const r = round ?? getViewedRound(history);
+        const rec = history.find((h) => Number(h.round) === r);
+        if (!rec || !rec.mutated_code) return;
+        const origPath =
+          rec.target_source || rec.target_file || "generated_code.py";
+        const base = origPath.split(/[\\/]/).pop();
+        const name = `round${String(r).padStart(2, "0")}_${base}`;
+        saveBlob(
+          name,
+          new Blob([rec.mutated_code], { type: "text/x-python;charset=utf-8" }),
+        );
+        appendLog(`Mutated file downloaded: ${name}`, "success");
+      }
+
+      function renderRoundCode(record) {
+        const original = document.getElementById("codeOriginal");
+        const mutated = document.getElementById("codeMutated");
+
+        original.textContent =
+          typeof record?.target_code === "string" &&
+          record.target_code.length > 0
+            ? record.target_code
+            : "// Original target code was not saved for this round.";
+
+        mutated.textContent =
+          typeof record?.mutated_code === "string" &&
+          record.mutated_code.length > 0
+            ? record.mutated_code
+            : "// Generated target code was not saved for this round.";
+      }
+
+      function renderRoundHistory(job) {
+        const container = document.getElementById("roundListContainer");
+        const indicator = document.getElementById("currentRoundIndicator");
+        const history = job.result?.history || [];
+        const currentRound = Number(job.current_round || 0);
+
+        container.innerHTML = "";
+        const totalRounds = Math.max(currentRound, history.length);
+
+        if (totalRounds === 0) {
+          container.innerHTML =
+            '<div class="round-badge active"><i data-lucide="info" class="icon-sm"></i> No active rounds</div>';
+          indicator.innerHTML =
+            '<i data-lucide="clock" class="icon-sm"></i> Round: Idle';
+          refreshIcons();
+          return;
+        }
+
+        const activeRound = pinnedRound ?? (currentRound || totalRounds);
+
+        for (let round = 1; round <= totalRounds; round++) {
+          const record = history.find((item) => Number(item.round) === round);
+          const badge = document.createElement("div");
+          badge.className = "round-badge";
+          if (round === activeRound) badge.classList.add("active");
+
+          badge.innerHTML = `<i data-lucide="layers" class="icon-sm"></i> Round ${String(round).padStart(2, "0")}`;
+          if (record) {
+            if (record.dysec_verdict) {
+              const vTag = document.createElement("span");
+              const isBenign = record.dysec_verdict === "NOT_DETECTED";
+              vTag.style.cssText = `font-family: var(--font-mono); font-size: 10.5px; color: ${isBenign ? "var(--success)" : "var(--danger)"}; font-weight: 700;`;
+              vTag.textContent = isBenign ? "BENIGN" : "DETECTED";
+              badge.appendChild(vTag);
+            }
+
+            const downloadBtn = document.createElement("button");
+            downloadBtn.type = "button";
+            downloadBtn.className = "round-download-btn";
+            downloadBtn.innerHTML = `<i data-lucide="download" style="width: 11px; height: 11px;"></i> Report`;
+            downloadBtn.addEventListener("click", (event) => {
+              event.stopPropagation();
+              window.location.href = `/api/reports/round/${encodeURIComponent(round)}`;
+            });
+            badge.appendChild(downloadBtn);
+          }
+
+          badge.addEventListener("click", () => {
+            const selected = history.find(
+              (item) => Number(item.round) === round,
+            );
+            pinnedRound = round;
+            indicator.innerHTML = `<i data-lucide="clock" class="icon-sm"></i> Round ${round}`;
+            if (selected) {
+              updateGatesFromHistory(selected);
+              renderRoundCode(selected);
+              updatePackageButtons(history);
+            }
+            renderRoundHistory(job);
+          });
+          container.appendChild(badge);
+        }
+
+        indicator.innerHTML = `<i data-lucide="clock" class="icon-sm"></i> Round ${activeRound}`;
+        refreshIcons();
+      }
+
+      function renderJob(job) {
+        lastJob = job;
+        const btnRun = document.getElementById("btnRunExperiment");
+        const btnStop = document.getElementById("btnStopExperiment");
+        const isRunning = ["RUNNING", "QUEUED"].includes(job.status);
+        const isStopped = ["STOPPED", "STOPPED_EARLY"].includes(job.status);
+
+        btnRun.disabled = isRunning;
+        btnStop.disabled = !isRunning;
+        setGlobalStatus(job.status, isRunning, isStopped);
+
+        const currentRound = job.current_round || 1;
+        const history = job.result?.history || job.history || [];
+
+        if (pinnedRound !== null) {
+          const selected = history.find(
+            (h) => Number(h.round) === Number(pinnedRound),
+          );
+          if (selected) {
+            updateGatesFromHistory(selected);
+            renderRoundCode(selected);
+          }
+        } else if (isRunning) {
+          resetGatesUI();
+          if (job.gate_results) {
+            Object.entries(job.gate_results).forEach(([gateKey, status]) => {
+              const domId = GATE_MAP[gateKey];
+              if (domId) setGate(domId, status === "PASSED", status);
+            });
+          }
+          if (job.live_target_code)
+            document.getElementById("codeOriginal").textContent =
+              job.live_target_code;
+          if (job.streaming_code)
+            document.getElementById("codeMutated").textContent =
+              job.streaming_code;
+        } else if (history.length > 0) {
+          const latest = history[history.length - 1];
+          updateGatesFromHistory(latest);
+          renderRoundCode(latest);
+        }
+
+        updatePackageButtons(history);
+        renderRoundHistory(job);
+        renderTokenPanel(job);
+        refreshIcons();
+      }
+
+      async function pollJobStatus() {
+        try {
+          const res = await fetch(`/api/robustness/status?_t=${Date.now()}`);
+          if (!res.ok) return;
+          const data = await res.json();
+          if (data.job) renderJob(data.job);
+        } catch (err) {
+          console.error("Polling error:", err);
+        }
+      }
+
+      function getSelectedPackage() {
+        const select = document.getElementById("packageList");
+        const idx = Number.parseInt(select.value, 10);
+        return !Number.isNaN(idx) && rawPackages[idx] ? rawPackages[idx] : null;
+      }
+
+      async function submitPipeline(endpoint, actionLabel) {
+        const selected = getSelectedPackage();
+        if (!selected) {
+          alert("Please select a target package first.");
+          return;
+        }
+
+        const btnRun = document.getElementById("btnRunExperiment");
+        const btnStop = document.getElementById("btnStopExperiment");
+
+        pinnedRound = null;
+        resetGatesUI();
+        document.getElementById("codeOriginal").textContent =
+          "// Extracting target region...";
+        document.getElementById("codeMutated").textContent =
+          "// Waiting for LLM generation...";
+
+        btnRun.disabled = true;
+        btnStop.disabled = false;
+        btnRun.innerHTML = `<i data-lucide="loader" class="icon-md"></i> Running...`;
+
+        const payload = {
+          package: selected.package || selected.name,
+          version: selected.version || "1.0",
+          method: document.getElementById("methodSelect").value,
+        };
+
+        appendLog(
+          `Initiating ${actionLabel} for package "${payload.package}"...`,
+          "warn",
+        );
+
+        try {
+          const res = await fetch(endpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          appendLog("Pipeline started. Streaming live output...", "success");
+          await pollJobStatus();
+        } catch (err) {
+          appendLog(`Pipeline error: ${err.message}`, "error");
+          alert(`Error: ${err.message}`);
+          btnRun.disabled = false;
+          btnStop.disabled = true;
+          btnRun.innerHTML = `<i data-lucide="play" class="icon-md"></i> Run`;
+        }
+        refreshIcons();
+      }
+
+      async function stopPipeline() {
+        const btnStop = document.getElementById("btnStopExperiment");
+        btnStop.disabled = true;
+        btnStop.innerHTML = `<i data-lucide="loader" class="icon-md"></i> Stopping...`;
+        appendLog("Sending stop request to pipeline backend...", "warn");
+
+        try {
+          const res = await fetch("/api/robustness/stop", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+          });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const data = await res.json();
+          appendLog(data.message || "Stop requested.", "warn");
+          await pollJobStatus();
+        } catch (err) {
+          appendLog(`Failed to stop pipeline: ${err.message}`, "error");
+        } finally {
+          btnStop.innerHTML = `<i data-lucide="square" class="icon-md"></i> Stop`;
+          refreshIcons();
+        }
+      }
+
+      function startPipeline() {
+        submitPipeline("/api/robustness/start", "Execution");
+      }
+      function resumePipeline() {
+        submitPipeline("/api/robustness/resume", "DySec Feedback Loop");
+      }
+
+      document.addEventListener("DOMContentLoaded", () => {
+        const searchInput = document.getElementById("searchPackage");
+        if (searchInput) {
+          let timer;
+          searchInput.addEventListener("input", (e) => {
+            clearTimeout(timer);
+            timer = setTimeout(
+              () => fetchMalRegistry(e.target.value.trim()),
+              200,
+            );
+          });
+        }
+        renderTokenChart([]);
+        fetchMalRegistry();
+        pollJobStatus();
+        refreshIcons();
+        if (pollTimer) clearInterval(pollTimer);
+        // Poll every 1000ms for smoother live code streaming
+        pollTimer = setInterval(pollJobStatus, 1000);
+      });
+    </script>
+  </body>
+</html>

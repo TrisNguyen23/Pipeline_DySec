@@ -20,60 +20,40 @@ def extract_package(
     archive_path: Path,
     destination: Path,
 ) -> Path:
+    archive_path = Path(archive_path).resolve()
+    destination = Path(destination).resolve()
 
-    archive_path = Path(
-        archive_path
-    ).resolve()
-
-    destination = Path(
-        destination
-    ).resolve()
-
-    if not archive_path.exists():
+    if not archive_path.is_file():
         raise FileNotFoundError(
-            f"Package archive not found: "
-            f"{archive_path}"
+            f"Package archive not found: {archive_path}"
         )
 
-    destination.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
+    destination.mkdir(parents=True, exist_ok=True)
 
-    with tarfile.open(
-        archive_path,
-        "r:gz",
-    ) as archive:
-
+    with tarfile.open(archive_path, "r:gz") as archive:
         destination_root = destination.resolve()
 
         for member in archive.getmembers():
-
             member_path = (
-                destination_root
-                / member.name
+                destination_root / member.name
             ).resolve()
 
             try:
-                member_path.relative_to(
-                    destination_root
-                )
+                member_path.relative_to(destination_root)
             except ValueError:
                 raise PackageExtractionError(
-                    f"Unsafe archive path: "
-                    f"{member.name}"
+                    f"Unsafe archive path: {member.name}"
                 )
 
             if member.issym() or member.islnk():
                 raise PackageExtractionError(
-                    f"Links are not allowed in "
-                    f"package archive: {member.name}"
+                    f"Links are not allowed in package archive: "
+                    f"{member.name}"
                 )
 
-        archive.extractall(
-            destination_root
-        )
+        archive.extractall(destination_root)
 
+    return find_package_root(destination_root)
 
 def find_package_root(
     extracted_directory: Path,
@@ -222,19 +202,19 @@ def create_package_archive(
     package_root: Path,
     archive_path: Path,
 ) -> Path:
+    """Create a tar.gz archive without executing package code."""
 
-    package_root = Path(
-        package_root
-    ).resolve()
+    package_root = Path(package_root).resolve()
+    archive_path = Path(archive_path).resolve()
 
-    archive_path = Path(
-        archive_path
-    ).resolve()
-
-    if not package_root.exists():
+    if not package_root.is_dir():
         raise FileNotFoundError(
-            f"Package root does not exist: "
-            f"{package_root}"
+            f"Package root does not exist: {package_root}"
+        )
+
+    if archive_path == package_root or package_root in archive_path.parents:
+        raise ValueError(
+            "Archive path must be outside package_root."
         )
 
     archive_path.parent.mkdir(
@@ -245,25 +225,11 @@ def create_package_archive(
     if archive_path.exists():
         archive_path.unlink()
 
-    base_dir = package_root.parent
-
-    with tarfile.open(
-        archive_path,
-        "w:gz",
-    ) as archive:
-
-        for path in sorted(
-            package_root.rglob("*")
-        ):
-
-            relative_path = path.relative_to(
-                base_dir
-            )
-
-            archive.add(
-                path,
-                arcname=relative_path,
-                recursive=False,
-            )
+    with tarfile.open(archive_path, "w:gz") as archive:
+        archive.add(
+            package_root,
+            arcname=package_root.name,
+            recursive=True,
+        )
 
     return archive_path

@@ -1,0 +1,132 @@
+[
+  {
+    "id": "refactor",
+    "label": "Refactor for readability",
+    "description": "Improve clarity and maintainability without changing behaviour.",
+    "instruction": "Refactor the file for readability and maintainability. Preserve behaviour and public interfaces exactly.",
+    "output": "in-place",
+    "behaviorPreserving": true,
+    "builtin": true,
+    "needsInstruction": false
+  },
+  {
+    "id": "harden",
+    "label": "Security hardening",
+    "description": "Fix common security weaknesses while keeping behaviour.",
+    "instruction": "Harden the file against security issues: input validation, injection, unsafe deserialization, path traversal, secrets in code, unsafe shell usage. Preserve intended behaviour.",
+    "output": "in-place",
+    "behaviorPreserving": true,
+    "builtin": true,
+    "needsInstruction": false
+  },
+  {
+    "id": "optimize",
+    "label": "Performance optimization",
+    "description": "Reduce algorithmic/IO cost without behaviour change.",
+    "instruction": "Improve performance (algorithmic complexity, redundant work, I/O) without changing behaviour or public interfaces.",
+    "output": "in-place",
+    "behaviorPreserving": true,
+    "builtin": true,
+    "needsInstruction": false
+  },
+  {
+    "id": "document",
+    "label": "Add documentation",
+    "description": "Add doc comments and type hints; no logic changes.",
+    "instruction": "Add concise, accurate documentation comments and type hints where the language supports them. Do not change logic.",
+    "output": "in-place",
+    "behaviorPreserving": true,
+    "builtin": true,
+    "needsInstruction": false
+  },
+  {
+    "id": "tests",
+    "label": "Generate unit tests",
+    "description": "Produce a test file for the source; added beside it on export.",
+    "instruction": "Write a complete unit-test file for this source file using the idiomatic test framework for its language. Output only the test file.",
+    "output": "new-file",
+    "behaviorPreserving": false,
+    "builtin": true,
+    "needsInstruction": false
+  },
+  {
+    "id": "custom",
+    "label": "Custom instruction",
+    "description": "Operator supplies a one-off instruction at run time.",
+    "instruction": "",
+    "output": "in-place",
+    "behaviorPreserving": false,
+    "builtin": true,
+    "needsInstruction": true
+  },
+  {
+    "id": "instruction_substitution",
+    "label": "Instruction Substitution for Evasion",
+    "description": "Replace standard API calls with custom implementations to evade signature-based detection.",
+    "instruction": "Transform the malware code by substituting standard system APIs (e.g., file I/O, process management, network communication) with custom wrappers or equivalent logic. Replace common opcodes with custom sequences to mask signature patterns while maintaining core functionality.",
+    "output": "in-place",
+    "behaviorPreserving": true,
+    "builtin": true,
+    "needsInstruction": false
+  },
+  {
+    "id": "dead_code_insertion",
+    "label": "Dead Code Insertion",
+    "description": "Insert unused logic paths to increase structural complexity and obfuscation.",
+    "instruction": "Analyze the control flow and insert dead code segments that do not alter the runtime execution path. Ensure the added code increases cyclomatic complexity and aids in anti-analysis techniques, such as adding unreachable condition blocks or redundant function calls.",
+    "output": "in-place",
+    "behaviorPreserving": true,
+    "builtin": true,
+    "needsInstruction": false
+  },
+  {
+    "id": "control_flow_flattening",
+    "label": "Control Flow Flattening",
+    "description": "Convert structured logic into a state machine to obscure control flow logic.",
+    "instruction": "Transform the control flow structure by flattening nested loops and conditional statements into a state-based switch-case mechanism. Introduce state variables to manage execution paths dynamically, enhancing the ability to evade static analysis tools.",
+    "output": "in-place",
+    "behaviorPreserving": true,
+    "builtin": true,
+    "needsInstruction": false
+  },
+  {
+    "id": "polymorphic_encryption",
+    "label": "Polymorphic Code Encryption",
+    "description": "Encrypt code segments and constants to prevent static signature matching.",
+    "instruction": "Implement polymorphic encryption techniques by encrypting sensitive payloads, constants, and function signatures. Ensure the decryption routines are dynamically generated or obfuscated to prevent signature-based detection, maintaining the original logic while altering the binary representation.",
+    "output": "in-place",
+    "behaviorPreserving": true,
+    "builtin": true,
+    "needsInstruction": false
+  },
+  {
+    "id": "opaque_predicates",
+    "label": "Opaque Predicate Insertion",
+    "description": "Insert conditions that always evaluate to true/false to hide logic paths.",
+    "instruction": "Introduce opaque predicates into the code logic where conditions are designed to always resolve to a known state. This technique helps in creating code paths that appear dynamic but remain constant, effectively hiding logic branches from anti-tampering and static analysis tools.",
+    "output": "in-place",
+    "behaviorPreserving":true,
+    "builtin":true,
+    "needsInstruction":false
+  },
+  {
+    "id": "api_interception",
+    "label": "API Interception and Hooking",
+    "description": "Intercept system calls to monitor and control external interactions.",
+    "instruction": "Apply API interception techniques by hooking critical system calls to monitor and control external interactions. This includes modifying how the malware communicates with the OS and other processes, ensuring robust behavior monitoring and data integrity without altering the core business logic.",
+    "output": "in-place",
+    "behaviorPreserving":true,
+    "builtin":true,
+    "needsInstruction":false
+  },
+  {
+    "id": "runtime_protection",
+    "label": "Runtime Protection and Integrity",
+    "description": "Add mechanisms to detect runtime tampering and ensure code integrity.",
+    "instruction": "Enhance the runtime environment with integrity checks and protection mechanisms that detect tampering, debugging tools, or code modifications during execution. Ensure these checks are transparent to the user and maintain the security posture of the malware throughout its lifecycle.",
+    "output": "in-place",
+    "behaviorPreserving":true,
+    "builtin":true,
+    "needsInstruction":false
+  }
+]

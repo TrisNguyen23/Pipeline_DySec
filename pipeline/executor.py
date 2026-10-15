@@ -9,7 +9,41 @@ from config.settings import (
     PYTHON_EXECUTABLE,
     SANDBOX_TIMEOUT,
 )
+def _resolve_install_root(package_root: Path) -> Path:
+    package_root = Path(package_root).resolve()
 
+    def has_metadata(path: Path) -> bool:
+        return (
+            (path / "setup.py").is_file()
+            or (path / "pyproject.toml").is_file()
+        )
+
+    if has_metadata(package_root):
+        return package_root
+
+    if not package_root.is_dir():
+        raise FileNotFoundError(
+            f"Package directory does not exist: {package_root}"
+        )
+
+    candidates = [
+        child
+        for child in package_root.iterdir()
+        if child.is_dir() and has_metadata(child)
+    ]
+
+    if len(candidates) == 1:
+        return candidates[0]
+
+    if len(candidates) > 1:
+        raise ValueError(
+            f"Multiple installable projects found in {package_root}"
+        )
+
+    raise FileNotFoundError(
+        f"No setup.py or pyproject.toml found in {package_root}"
+        " or its immediate subdirectories."
+    )
 
 def _result(
     *,
@@ -122,7 +156,7 @@ def execute_package(
                     environment_directory
                 ),
             )
-
+    install_root = _resolve_install_root(package_root)
     pip_command = [
         str(venv_python),
         "-m",
@@ -130,7 +164,7 @@ def execute_package(
         "install",
         "--no-deps",
         "--no-build-isolation",
-        str(package_root),
+        str(install_root),
     ]
 
     environment = os.environ.copy()
